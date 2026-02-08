@@ -14,7 +14,10 @@
     border-radius: 8px;
     cursor: pointer;
     transition: all 0.3s ease;
-    display: inline-block;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    line-height: 1.4;
 }
 
 .apotheca-ar-trigger:hover,
@@ -24,13 +27,13 @@
     color: white;
 }
 
-/* Elementor Widget - Clean Default */
+/* Elementor Widget */
 .apotheca-ar-widget {
-    /* No default margin/padding - let Elementor control it */
+    /* Let Elementor control alignment */
 }
 
 .elementor-widget-apotheca_ar_tryon .apotheca-ar-trigger {
-    /* Elementor will control all styling via the widget controls */
+    /* Elementor controls styling via widget controls */
 }
 
 /* Modal Overlay */
@@ -59,6 +62,15 @@ body.apotheca-ar-active {
     background: #1a1a1a;
     border-radius: 16px;
     box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+}
+
+/* Modal Title */
+.apotheca-modal-title {
+    color: white;
+    margin-top: 0;
+    margin-bottom: 20px;
+    font-size: 24px;
+    font-weight: 700;
 }
 
 /* Close Button */
@@ -129,11 +141,11 @@ body.apotheca-ar-active {
     border-radius: 50%;
     width: 40px;
     height: 40px;
-    animation: spin 1s linear infinite;
+    animation: apotheca-spin 1s linear infinite;
     margin: 0 auto 10px;
 }
 
-@keyframes spin {
+@keyframes apotheca-spin {
     0% { transform: rotate(0deg); }
     100% { transform: rotate(360deg); }
 }
@@ -177,8 +189,10 @@ body.apotheca-ar-active {
     display: flex;
     flex-wrap: wrap;
     gap: 10px;
+    padding-bottom: 20px; /* space for hover name label */
 }
 
+/* Swatch Button - defaults, Elementor overrides via selectors */
 .apotheca-swatch-btn {
     position: relative;
     width: 40px;
@@ -193,18 +207,22 @@ body.apotheca-ar-active {
     flex-direction: column;
     align-items: center;
     justify-content: center;
+    box-sizing: border-box;
 }
 
 .apotheca-swatch-btn:hover {
     border-color: #667eea;
     border-width: 3px;
+    transform: scale(1.1);
 }
 
 .apotheca-swatch-btn.active {
     border-color: #667eea;
     border-width: 3px;
+    box-shadow: 0 0 0 2px rgba(102, 126, 234, 0.3);
 }
 
+/* Swatch hover name tooltip */
 .apotheca-swatch-name {
     position: absolute;
     top: 100%;
@@ -219,6 +237,9 @@ body.apotheca-ar-active {
     opacity: 0;
     transition: opacity 0.2s ease;
     pointer-events: none;
+    background: rgba(0, 0, 0, 0.75);
+    padding: 2px 6px;
+    border-radius: 3px;
 }
 
 .apotheca-swatch-btn:hover .apotheca-swatch-name,
@@ -265,10 +286,13 @@ body.apotheca-ar-active {
     position: relative;
     cursor: pointer;
     appearance: none;
+    -webkit-appearance: none;
     background: #4a4a4a;
     border-radius: 13px;
     transition: all 0.3s ease;
     margin-right: 10px;
+    border: none;
+    outline: none;
 }
 
 .apotheca-toggle input[type="checkbox"]:checked {
@@ -344,23 +368,33 @@ body.apotheca-ar-active {
     border-color: #667eea;
 }
 
+/* Tips Box */
+.apotheca-tips-box {
+    margin-top: 20px;
+    padding: 15px;
+    background: rgba(102, 126, 234, 0.1);
+    border-radius: 8px;
+    font-size: 13px;
+    line-height: 1.6;
+    color: #e0e0e0;
+}
+
+.apotheca-tips-box strong {
+    color: #ffffff;
+}
+
 /* Responsive */
 @media (max-width: 968px) {
     .apotheca-ar-content {
         grid-template-columns: 1fr;
     }
-    
+
     .apotheca-ar-container {
         margin: 10px;
         padding: 15px;
     }
-    
+
     .apotheca-ar-video-wrapper {
         aspect-ratio: 3/4;
     }
-    
-    .apotheca-swatch-list {
-        grid-template-columns: repeat(auto-fill, minmax(60px, 1fr));
-    }
 }
-

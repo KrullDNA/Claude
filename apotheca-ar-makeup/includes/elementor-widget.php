@@ -33,12 +33,16 @@ class Apotheca_AR_Elementor_Widget extends \Elementor\Widget_Base {
      * Register widget controls
      */
     protected function register_controls() {
-        
-        // CONTENT SECTION
+
+        // =============================================
+        // CONTENT TAB
+        // =============================================
+
+        // --- Button Content ---
         $this->start_controls_section(
             'content_section',
             [
-                'label' => 'Content',
+                'label' => 'Button',
                 'tab' => \Elementor\Controls_Manager::TAB_CONTENT,
             ]
         );
@@ -117,7 +121,91 @@ class Apotheca_AR_Elementor_Widget extends \Elementor\Widget_Base {
 
         $this->end_controls_section();
 
-        // BUTTON STYLE SECTION
+        // --- Modal Content ---
+        $this->start_controls_section(
+            'modal_content_section',
+            [
+                'label' => 'Modal Content',
+                'tab' => \Elementor\Controls_Manager::TAB_CONTENT,
+            ]
+        );
+
+        $this->add_control(
+            'modal_title',
+            [
+                'label' => 'Modal Title',
+                'type' => \Elementor\Controls_Manager::TEXT,
+                'default' => 'Virtual Makeup Try-On',
+                'placeholder' => 'Enter modal title',
+            ]
+        );
+
+        $this->add_control(
+            'controls_heading_text',
+            [
+                'label' => 'Controls Panel Heading',
+                'type' => \Elementor\Controls_Manager::TEXT,
+                'default' => 'Makeup Controls',
+                'placeholder' => 'Enter controls heading',
+            ]
+        );
+
+        $this->end_controls_section();
+
+        // --- Tips Box Content ---
+        $this->start_controls_section(
+            'tips_content_section',
+            [
+                'label' => 'Tips Box',
+                'tab' => \Elementor\Controls_Manager::TAB_CONTENT,
+            ]
+        );
+
+        $this->add_control(
+            'show_tips_box',
+            [
+                'label' => 'Show Tips Box',
+                'type' => \Elementor\Controls_Manager::SWITCHER,
+                'label_on' => 'Show',
+                'label_off' => 'Hide',
+                'return_value' => 'yes',
+                'default' => 'yes',
+            ]
+        );
+
+        $this->add_control(
+            'tips_title',
+            [
+                'label' => 'Tips Title',
+                'type' => \Elementor\Controls_Manager::TEXT,
+                'default' => 'Tips',
+                'placeholder' => 'Enter tips title',
+                'condition' => [
+                    'show_tips_box' => 'yes',
+                ],
+            ]
+        );
+
+        $this->add_control(
+            'tips_content',
+            [
+                'label' => 'Tips Content',
+                'type' => \Elementor\Controls_Manager::TEXTAREA,
+                'default' => "Make sure you're in good lighting\nKeep your face centered in the frame\nClick product shades above to try different colors\nAllow camera access when prompted",
+                'placeholder' => 'Enter tips (one per line)',
+                'condition' => [
+                    'show_tips_box' => 'yes',
+                ],
+            ]
+        );
+
+        $this->end_controls_section();
+
+        // =============================================
+        // STYLE TAB
+        // =============================================
+
+        // --- Button Style ---
         $this->start_controls_section(
             'button_style_section',
             [
@@ -344,7 +432,226 @@ class Apotheca_AR_Elementor_Widget extends \Elementor\Widget_Base {
 
         $this->end_controls_section();
 
-        // MODAL STYLE SECTION
+        // --- Swatch Style ---
+        $this->start_controls_section(
+            'swatch_style_section',
+            [
+                'label' => 'Swatch Style',
+                'tab' => \Elementor\Controls_Manager::TAB_STYLE,
+            ]
+        );
+
+        $this->add_responsive_control(
+            'swatch_size',
+            [
+                'label' => 'Swatch Size',
+                'type' => \Elementor\Controls_Manager::SLIDER,
+                'size_units' => ['px'],
+                'range' => [
+                    'px' => [
+                        'min' => 20,
+                        'max' => 80,
+                    ],
+                ],
+                'default' => [
+                    'unit' => 'px',
+                    'size' => 40,
+                ],
+                'selectors' => [
+                    '#apotheca-ar-modal .apotheca-swatch-btn' => 'width: {{SIZE}}{{UNIT}}; height: {{SIZE}}{{UNIT}};',
+                ],
+            ]
+        );
+
+        $this->add_control(
+            'swatch_shape',
+            [
+                'label' => 'Swatch Shape',
+                'type' => \Elementor\Controls_Manager::SELECT,
+                'default' => 'circle',
+                'options' => [
+                    'circle' => 'Circle',
+                    'rounded' => 'Rounded Square',
+                    'square' => 'Square',
+                ],
+                'selectors_dictionary' => [
+                    'circle' => '50%',
+                    'rounded' => '8px',
+                    'square' => '0px',
+                ],
+                'selectors' => [
+                    '#apotheca-ar-modal .apotheca-swatch-btn' => 'border-radius: {{VALUE}};',
+                ],
+            ]
+        );
+
+        $this->add_responsive_control(
+            'swatch_gap',
+            [
+                'label' => 'Gap Between Swatches',
+                'type' => \Elementor\Controls_Manager::SLIDER,
+                'size_units' => ['px'],
+                'range' => [
+                    'px' => [
+                        'min' => 0,
+                        'max' => 30,
+                    ],
+                ],
+                'default' => [
+                    'unit' => 'px',
+                    'size' => 10,
+                ],
+                'selectors' => [
+                    '#apotheca-ar-modal .apotheca-swatch-list' => 'gap: {{SIZE}}{{UNIT}};',
+                ],
+            ]
+        );
+
+        $this->add_control(
+            'swatch_border_heading',
+            [
+                'label' => 'Border',
+                'type' => \Elementor\Controls_Manager::HEADING,
+                'separator' => 'before',
+            ]
+        );
+
+        $this->add_responsive_control(
+            'swatch_border_width',
+            [
+                'label' => 'Border Width',
+                'type' => \Elementor\Controls_Manager::SLIDER,
+                'size_units' => ['px'],
+                'range' => [
+                    'px' => [
+                        'min' => 0,
+                        'max' => 6,
+                    ],
+                ],
+                'default' => [
+                    'unit' => 'px',
+                    'size' => 2,
+                ],
+                'selectors' => [
+                    '#apotheca-ar-modal .apotheca-swatch-btn' => 'border-width: {{SIZE}}{{UNIT}}; border-style: solid;',
+                ],
+            ]
+        );
+
+        $this->add_control(
+            'swatch_border_color',
+            [
+                'label' => 'Border Color',
+                'type' => \Elementor\Controls_Manager::COLOR,
+                'default' => 'rgba(255, 255, 255, 0.3)',
+                'selectors' => [
+                    '#apotheca-ar-modal .apotheca-swatch-btn' => 'border-color: {{VALUE}};',
+                ],
+            ]
+        );
+
+        $this->add_control(
+            'swatch_hover_heading',
+            [
+                'label' => 'Hover & Active',
+                'type' => \Elementor\Controls_Manager::HEADING,
+                'separator' => 'before',
+            ]
+        );
+
+        $this->add_control(
+            'swatch_hover_border_color',
+            [
+                'label' => 'Hover Border Color',
+                'type' => \Elementor\Controls_Manager::COLOR,
+                'default' => '#667eea',
+                'selectors' => [
+                    '#apotheca-ar-modal .apotheca-swatch-btn:hover' => 'border-color: {{VALUE}};',
+                ],
+            ]
+        );
+
+        $this->add_control(
+            'swatch_active_border_color',
+            [
+                'label' => 'Active Border Color',
+                'type' => \Elementor\Controls_Manager::COLOR,
+                'default' => '#667eea',
+                'selectors' => [
+                    '#apotheca-ar-modal .apotheca-swatch-btn.active' => 'border-color: {{VALUE}};',
+                ],
+            ]
+        );
+
+        $this->add_responsive_control(
+            'swatch_active_border_width',
+            [
+                'label' => 'Active Border Width',
+                'type' => \Elementor\Controls_Manager::SLIDER,
+                'size_units' => ['px'],
+                'range' => [
+                    'px' => [
+                        'min' => 1,
+                        'max' => 6,
+                    ],
+                ],
+                'default' => [
+                    'unit' => 'px',
+                    'size' => 3,
+                ],
+                'selectors' => [
+                    '#apotheca-ar-modal .apotheca-swatch-btn:hover' => 'border-width: {{SIZE}}{{UNIT}};',
+                    '#apotheca-ar-modal .apotheca-swatch-btn.active' => 'border-width: {{SIZE}}{{UNIT}};',
+                ],
+            ]
+        );
+
+        $this->add_control(
+            'swatch_hover_name_heading',
+            [
+                'label' => 'Hover Name Label',
+                'type' => \Elementor\Controls_Manager::HEADING,
+                'separator' => 'before',
+            ]
+        );
+
+        $this->add_control(
+            'swatch_name_color',
+            [
+                'label' => 'Name Color',
+                'type' => \Elementor\Controls_Manager::COLOR,
+                'default' => '#ffffff',
+                'selectors' => [
+                    '#apotheca-ar-modal .apotheca-swatch-name' => 'color: {{VALUE}};',
+                ],
+            ]
+        );
+
+        $this->add_responsive_control(
+            'swatch_name_size',
+            [
+                'label' => 'Name Font Size',
+                'type' => \Elementor\Controls_Manager::SLIDER,
+                'size_units' => ['px'],
+                'range' => [
+                    'px' => [
+                        'min' => 8,
+                        'max' => 18,
+                    ],
+                ],
+                'default' => [
+                    'unit' => 'px',
+                    'size' => 11,
+                ],
+                'selectors' => [
+                    '#apotheca-ar-modal .apotheca-swatch-name' => 'font-size: {{SIZE}}{{UNIT}};',
+                ],
+            ]
+        );
+
+        $this->end_controls_section();
+
+        // --- Modal Style ---
         $this->start_controls_section(
             'modal_style_section',
             [
@@ -417,7 +724,7 @@ class Apotheca_AR_Elementor_Widget extends \Elementor\Widget_Base {
 
         $this->end_controls_section();
 
-        // AR VIDEO AREA STYLE
+        // --- AR Video Area Style ---
         $this->start_controls_section(
             'ar_video_style_section',
             [
@@ -501,7 +808,7 @@ class Apotheca_AR_Elementor_Widget extends \Elementor\Widget_Base {
 
         $this->end_controls_section();
 
-        // CONTROLS PANEL STYLE
+        // --- Controls Panel Style ---
         $this->start_controls_section(
             'controls_panel_style_section',
             [
@@ -603,9 +910,33 @@ class Apotheca_AR_Elementor_Widget extends \Elementor\Widget_Base {
             ]
         );
 
+        $this->add_control(
+            'controls_heading_color',
+            [
+                'label' => 'Heading Color',
+                'type' => \Elementor\Controls_Manager::COLOR,
+                'default' => '#ffffff',
+                'selectors' => [
+                    '#apotheca-ar-modal .apotheca-ar-controls h3' => 'color: {{VALUE}};',
+                ],
+            ]
+        );
+
+        $this->add_control(
+            'controls_attr_heading_color',
+            [
+                'label' => 'Attribute Heading Color',
+                'type' => \Elementor\Controls_Manager::COLOR,
+                'default' => '#ffffff',
+                'selectors' => [
+                    '#apotheca-ar-modal .apotheca-variation-swatches h4' => 'color: {{VALUE}};',
+                ],
+            ]
+        );
+
         $this->end_controls_section();
 
-        // TITLE STYLE
+        // --- Modal Title Style ---
         $this->start_controls_section(
             'title_style_section',
             [
@@ -618,7 +949,7 @@ class Apotheca_AR_Elementor_Widget extends \Elementor\Widget_Base {
             \Elementor\Group_Control_Typography::get_type(),
             [
                 'name' => 'title_typography',
-                'selector' => '#apotheca-ar-modal h2',
+                'selector' => '#apotheca-ar-modal .apotheca-modal-title',
             ]
         );
 
@@ -629,7 +960,7 @@ class Apotheca_AR_Elementor_Widget extends \Elementor\Widget_Base {
                 'type' => \Elementor\Controls_Manager::COLOR,
                 'default' => '#ffffff',
                 'selectors' => [
-                    '#apotheca-ar-modal h2' => 'color: {{VALUE}};',
+                    '#apotheca-ar-modal .apotheca-modal-title' => 'color: {{VALUE}};',
                 ],
             ]
         );
@@ -651,14 +982,118 @@ class Apotheca_AR_Elementor_Widget extends \Elementor\Widget_Base {
                     'size' => 20,
                 ],
                 'selectors' => [
-                    '#apotheca-ar-modal h2' => 'margin-bottom: {{SIZE}}{{UNIT}};',
+                    '#apotheca-ar-modal .apotheca-modal-title' => 'margin-bottom: {{SIZE}}{{UNIT}};',
                 ],
             ]
         );
 
         $this->end_controls_section();
 
-        // CLOSE BUTTON STYLE
+        // --- Tips Box Style ---
+        $this->start_controls_section(
+            'tips_style_section',
+            [
+                'label' => 'Tips Box Style',
+                'tab' => \Elementor\Controls_Manager::TAB_STYLE,
+                'condition' => [
+                    'show_tips_box' => 'yes',
+                ],
+            ]
+        );
+
+        $this->add_control(
+            'tips_bg_color',
+            [
+                'label' => 'Background Color',
+                'type' => \Elementor\Controls_Manager::COLOR,
+                'default' => 'rgba(102, 126, 234, 0.1)',
+                'selectors' => [
+                    '#apotheca-ar-modal .apotheca-tips-box' => 'background-color: {{VALUE}};',
+                ],
+            ]
+        );
+
+        $this->add_control(
+            'tips_text_color',
+            [
+                'label' => 'Text Color',
+                'type' => \Elementor\Controls_Manager::COLOR,
+                'default' => '#e0e0e0',
+                'selectors' => [
+                    '#apotheca-ar-modal .apotheca-tips-box' => 'color: {{VALUE}};',
+                ],
+            ]
+        );
+
+        $this->add_control(
+            'tips_title_color',
+            [
+                'label' => 'Title Color',
+                'type' => \Elementor\Controls_Manager::COLOR,
+                'default' => '#ffffff',
+                'selectors' => [
+                    '#apotheca-ar-modal .apotheca-tips-box strong' => 'color: {{VALUE}};',
+                ],
+            ]
+        );
+
+        $this->add_group_control(
+            \Elementor\Group_Control_Typography::get_type(),
+            [
+                'name' => 'tips_typography',
+                'selector' => '#apotheca-ar-modal .apotheca-tips-box',
+            ]
+        );
+
+        $this->add_responsive_control(
+            'tips_padding',
+            [
+                'label' => 'Padding',
+                'type' => \Elementor\Controls_Manager::DIMENSIONS,
+                'size_units' => ['px', 'em'],
+                'default' => [
+                    'top' => 15,
+                    'right' => 15,
+                    'bottom' => 15,
+                    'left' => 15,
+                    'unit' => 'px',
+                ],
+                'selectors' => [
+                    '#apotheca-ar-modal .apotheca-tips-box' => 'padding: {{TOP}}{{UNIT}} {{RIGHT}}{{UNIT}} {{BOTTOM}}{{UNIT}} {{LEFT}}{{UNIT}};',
+                ],
+            ]
+        );
+
+        $this->add_responsive_control(
+            'tips_border_radius',
+            [
+                'label' => 'Border Radius',
+                'type' => \Elementor\Controls_Manager::DIMENSIONS,
+                'size_units' => ['px', '%'],
+                'default' => [
+                    'top' => 8,
+                    'right' => 8,
+                    'bottom' => 8,
+                    'left' => 8,
+                    'unit' => 'px',
+                ],
+                'selectors' => [
+                    '#apotheca-ar-modal .apotheca-tips-box' => 'border-radius: {{TOP}}{{UNIT}} {{RIGHT}}{{UNIT}} {{BOTTOM}}{{UNIT}} {{LEFT}}{{UNIT}};',
+                ],
+            ]
+        );
+
+        $this->add_group_control(
+            \Elementor\Group_Control_Border::get_type(),
+            [
+                'name' => 'tips_border',
+                'selector' => '#apotheca-ar-modal .apotheca-tips-box',
+            ]
+        );
+
+        $this->end_controls_section();
+
+        // --- Close Button Style ---
         $this->start_controls_section(
             'close_button_style_section',
             [
@@ -733,24 +1168,13 @@ class Apotheca_AR_Elementor_Widget extends \Elementor\Widget_Base {
      */
     protected function render() {
         $settings = $this->get_settings_for_display();
-        
+
         $button_class = 'apotheca-ar-trigger elementor-button';
-        
+
         if (!empty($settings['button_hover_animation'])) {
             $button_class .= ' elementor-animation-' . $settings['button_hover_animation'];
         }
-        
-        // Get product variations if on product page
-        $variations_html = '';
-        if (is_product()) {
-            global $post;
-            $product = wc_get_product($post->ID);
-            
-            if ($product && $product->is_type('variable')) {
-                $variations_html = $this->get_variations_html($product);
-            }
-        }
-        
+
         ?>
         <div class="apotheca-ar-widget">
             <button class="<?php echo esc_attr($button_class); ?>">
@@ -759,9 +1183,9 @@ class Apotheca_AR_Elementor_Widget extends \Elementor\Widget_Base {
                         <?php \Elementor\Icons_Manager::render_icon($settings['button_icon'], ['aria-hidden' => 'true']); ?>
                     </span>
                 <?php endif; ?>
-                
+
                 <span><?php echo esc_html($settings['button_text']); ?></span>
-                
+
                 <?php if (!empty($settings['button_icon']['value']) && $settings['icon_position'] === 'right') : ?>
                     <span class="icon-right">
                         <?php \Elementor\Icons_Manager::render_icon($settings['button_icon'], ['aria-hidden' => 'true']); ?>
@@ -769,60 +1193,76 @@ class Apotheca_AR_Elementor_Widget extends \Elementor\Widget_Base {
                 <?php endif; ?>
             </button>
         </div>
-        
+
         <!-- Include AR Modal (only once per page) -->
         <?php
         static $modal_included = false;
         if (!$modal_included) {
             $modal_included = true;
+            // Pass settings to modal template
+            $modal_settings = [
+                'modal_title' => $settings['modal_title'],
+                'controls_heading_text' => $settings['controls_heading_text'],
+                'show_tips_box' => $settings['show_tips_box'],
+                'tips_title' => $settings['tips_title'],
+                'tips_content' => $settings['tips_content'],
+            ];
             include APOTHECA_AR_PLUGIN_DIR . 'templates/ar-modal.php';
         }
         ?>
         <?php
     }
-    
+
     /**
      * Get variations HTML for modal
      */
     private function get_variations_html($product) {
         $attributes = $product->get_attributes();
         $html = '';
-        
+
         foreach ($attributes as $attribute) {
-            $attr_name = strtolower($attribute->get_name());
-            $is_color_attr = (
-                strpos($attr_name, 'color') !== false ||
-                strpos($attr_name, 'colour') !== false ||
-                strpos($attr_name, 'shade') !== false ||
-                strpos($attr_name, 'tone') !== false
-            );
-            
-            if ($is_color_attr && $attribute->is_taxonomy()) {
+            if ($attribute->is_taxonomy()) {
                 $terms = $attribute->get_terms();
-                
-                $html .= '<div class="apotheca-variation-swatches">';
-                $html .= '<h4>' . esc_html($attribute->get_name()) . '</h4>';
-                $html .= '<div class="apotheca-swatch-list">';
-                
+                $attr_label = wc_attribute_label($attribute->get_name());
+                $attr_slug = sanitize_title($attribute->get_name());
+
+                $has_swatches = false;
                 foreach ($terms as $term) {
-                    $swatch_color = get_term_meta($term->term_id, 'fif_swatch_color', true);
-                    
-                    if (!empty($swatch_color)) {
-                        $html .= sprintf(
-                            '<button type="button" class="apotheca-swatch-btn" data-color="%s" data-name="%s" style="background-color: %s;" title="%s"></button>',
-                            esc_attr($swatch_color),
-                            esc_attr($term->name),
-                            esc_attr($swatch_color),
-                            esc_attr($term->name)
-                        );
+                    if (get_term_meta($term->term_id, 'fif_swatch_color', true)) {
+                        $has_swatches = true;
+                        break;
                     }
                 }
-                
-                $html .= '</div>';
-                $html .= '</div>';
+
+                if ($has_swatches) {
+                    $html .= '<div class="apotheca-variation-swatches">';
+                    $html .= '<h4>' . esc_html($attr_label) . '</h4>';
+                    $html .= '<div class="apotheca-swatch-list">';
+
+                    foreach ($terms as $term) {
+                        $swatch_color = get_term_meta($term->term_id, 'fif_swatch_color', true);
+
+                        if (!empty($swatch_color)) {
+                            $html .= sprintf(
+                                '<button type="button" class="apotheca-swatch-btn" data-color="%s" data-name="%s" data-attribute="%s" style="background-color: %s;" title="%s">' .
+                                '<span class="apotheca-swatch-name">%s</span>' .
+                                '</button>',
+                                esc_attr($swatch_color),
+                                esc_attr($term->name),
+                                esc_attr($attr_slug),
+                                esc_attr($swatch_color),
+                                esc_attr($term->name),
+                                esc_html($term->name)
+                            );
+                        }
+                    }
+
+                    $html .= '</div>';
+                    $html .= '</div>';
+                }
             }
         }
-        
+
         return $html;
     }
 }
