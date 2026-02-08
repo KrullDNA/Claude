@@ -18,7 +18,7 @@ $tips_content = isset($modal_settings['tips_content']) ? $modal_settings['tips_c
 <!-- Apotheca AR Makeup Try-On Modal -->
 <div id="apotheca-ar-modal" class="apotheca-ar-modal">
     <div class="apotheca-ar-container">
-        <button class="apotheca-ar-close" aria-label="Close AR Try-On">&times;</button>
+        <button class="apotheca-ar-close" aria-label="Close AR Try-On"></button>
 
         <h2 class="apotheca-modal-title"><?php echo esc_html($modal_title); ?></h2>
 
@@ -131,17 +131,11 @@ $tips_content = isset($modal_settings['tips_content']) ? $modal_settings['tips_c
                 <?php if ($show_tips === 'yes' && !empty($tips_content)) : ?>
                 <div class="apotheca-tips-box">
                     <?php if (!empty($tips_title)) : ?>
-                        <strong><?php echo esc_html($tips_title); ?></strong><br>
+                        <div class="apotheca-tips-title"><?php echo esc_html($tips_title); ?></div>
                     <?php endif; ?>
-                    <?php
-                    $lines = explode("\n", $tips_content);
-                    foreach ($lines as $line) {
-                        $line = trim($line);
-                        if (!empty($line)) {
-                            echo '&bull; ' . esc_html($line) . '<br>';
-                        }
-                    }
-                    ?>
+                    <div class="apotheca-tips-content">
+                    <?php echo wp_kses_post($tips_content); ?>
+                    </div>
                 </div>
                 <?php endif; ?>
             </div>
