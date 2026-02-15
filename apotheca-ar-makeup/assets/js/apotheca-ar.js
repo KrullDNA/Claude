@@ -31,12 +31,18 @@
   const REGION_POLYGONS = {
 
     // --- Lips ---
-    // Outer contour — both upper and lower lip together (closed path)
-    lips_outer: [61, 146, 91, 181, 84, 17, 314, 405, 321, 375, 291, 308,
-                 324, 318, 402, 317, 14, 87, 178, 88, 95, 78],
-    // Inner mouth opening — subtracted so colour never fills the open mouth gap
-    lips_inner: [78, 191, 80, 81, 82, 13, 312, 311, 310, 415, 308,
-                 324, 318, 402, 317, 14, 87, 178, 88, 95],
+    // Outer contour — traces the FULL boundary of both lips together.
+    // Path: left corner (61) → upper-lip outer edge (185…409) → right corner (291)
+    //       → lower-lip outer edge (375…146) → back to left corner.
+    // Previously this only used the lower-outer edge, so the upper lip was invisible.
+    lips_outer: [61, 185, 40, 39, 37, 0, 267, 269, 270, 409,
+                 291, 375, 321, 405, 314, 17, 84, 181, 91, 146],
+    // Inner mouth opening — the hole that forms when the mouth opens.
+    // Subtracted (destination-out) so colour never appears inside the open mouth.
+    // Upper inner: 78→191→80→81→82→13→312→311→310→415→308
+    // Lower inner: 308→324→318→402→317→14→87→178→88→95→78
+    lips_inner: [78, 191, 80, 81, 82, 13, 312, 311, 310, 415,
+                 308, 324, 318, 402, 317, 14, 87, 178, 88, 95],
 
     // --- Eyebrows ---
     left_eyebrow:  [46, 53, 52, 65, 55, 107, 66, 105, 63, 70],
@@ -638,9 +644,9 @@
         this.drawRegionPolygon(ctx, landmarks, REGION_POLYGONS.right_concealer, this.selectedRegions.concealer, 0.20, t);
       }
 
-      // Foundation (sheer tint over the full face oval)
+      // Foundation (sheer tint, extended to hairline — see drawFoundation())
       if (this.selectedRegions.foundation) {
-        this.drawRegionPolygon(ctx, landmarks, REGION_POLYGONS.face_oval, this.selectedRegions.foundation, 0.18, t);
+        this.drawFoundation(ctx, landmarks, this.selectedRegions.foundation, t);
       }
     },
 
@@ -675,6 +681,74 @@
         ctx.lineTo(x, y);
       }
 
+      ctx.closePath();
+      ctx.fill();
+      ctx.restore();
+    },
+
+    /**
+     * Draw foundation over the full face — chin to hairline.
+     *
+     * MediaPipe's face_oval only tracks to the mid/upper forehead skin; it has no
+     * hairline landmarks. This method takes the face oval, converts it to pixel
+     * coordinates, then extrapolates the upper-half points further upward so the
+     * tint reaches the actual hairline rather than stopping at the tracked boundary.
+     *
+     * The extrapolation is proportional: points at the very top of the oval move up
+     * by HAIRLINE_EXTEND × faceHeight, points exactly at the vertical centre move
+     * by 0. The bottom half is untouched so the jaw/chin edge stays accurate.
+     *
+     * @param {CanvasRenderingContext2D} ctx
+     * @param {Array}  landmarks  MediaPipe normalised landmark array
+     * @param {string} color      CSS colour
+     * @param {Object} t          Render transform { srcW, srcH, scale, dx, dy }
+     */
+    drawFoundation: function (ctx, landmarks, color, t) {
+      const indices = REGION_POLYGONS.face_oval;
+      if (!indices || indices.length < 3) return;
+
+      const srcW  = (t && t.srcW) || 0;
+      const srcH  = (t && t.srcH) || 0;
+      const scale = (t && t.scale) || 1;
+      const dx    = (t && t.dx)   || 0;
+      const dy    = (t && t.dy)   || 0;
+
+      // Convert to canvas pixel coords
+      const pts = indices.map(function (i) {
+        const lm = landmarks[i];
+        return { x: (lm.x * srcW * scale) + dx,
+                 y: (lm.y * srcH * scale) + dy };
+      });
+
+      // Bounding box of the tracked oval
+      let minY = Infinity, maxY = -Infinity;
+      for (let i = 0; i < pts.length; i++) {
+        if (pts[i].y < minY) minY = pts[i].y;
+        if (pts[i].y > maxY) maxY = pts[i].y;
+      }
+      const faceH   = maxY - minY;
+      const midY    = (minY + maxY) / 2;
+
+      // How far above the tracked forehead to push the oval.
+      // 0.22 ≈ 22 % of face height — enough to reach the hairline on most faces.
+      // Increase toward 0.30 for taller foreheads; decrease toward 0.12 for smaller.
+      const HAIRLINE_EXTEND = 0.22;
+
+      // Extend only the upper half; leave lower half (jaw/chin) untouched
+      const extended = pts.map(function (p) {
+        if (p.y >= midY) return p;                       // lower half — no change
+        const relPos = (midY - p.y) / (midY - minY);    // 0 at midY, 1 at topmost point
+        return { x: p.x, y: p.y - faceH * HAIRLINE_EXTEND * relPos };
+      });
+
+      ctx.save();
+      ctx.globalAlpha = 0.18;
+      ctx.fillStyle   = color;
+      ctx.beginPath();
+      ctx.moveTo(extended[0].x, extended[0].y);
+      for (let i = 1; i < extended.length; i++) {
+        ctx.lineTo(extended[i].x, extended[i].y);
+      }
       ctx.closePath();
       ctx.fill();
       ctx.restore();
