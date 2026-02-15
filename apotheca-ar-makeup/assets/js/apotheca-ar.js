@@ -21,21 +21,57 @@
   // when the user selects a swatch (data-face-region) in the modal.
 
   /**
-   * Basic polygon index sets (MediaPipe FaceMesh indices).
-   * These are intentionally simple and can be refined later.
+   * MediaPipe FaceMesh landmark index sets for each face region.
+   * Indices reference the 468-point (+ iris refinement) mesh.
+   * All values can be fine-tuned; these cover the correct anatomical areas.
+   *
+   * Supported regions (matches apotheca_ar_attribute_face_regions PHP enum):
+   *   lips | eyebrows | eyelash | eyeshadow | eyeliner | blush | concealer | foundation
    */
   const REGION_POLYGONS = {
-    // Lips
-    lips_outer: [61, 146, 91, 181, 84, 17, 314, 405, 321, 375, 291, 308],
-    lips_inner: [78, 191, 80, 81, 82, 13, 312, 311, 310, 415, 308],
 
-    // Brows (approx outlines)
-    left_brow: [70, 63, 105, 66, 107, 55, 65, 52, 53, 46],
-    right_brow: [336, 296, 334, 293, 300, 276, 283, 282, 295, 285],
+    // --- Lips ---
+    // Outer contour — both upper and lower lip together (closed path)
+    lips_outer: [61, 146, 91, 181, 84, 17, 314, 405, 321, 375, 291, 308,
+                 324, 318, 402, 317, 14, 87, 178, 88, 95, 78],
+    // Inner mouth opening — subtracted so colour never fills the open mouth gap
+    lips_inner: [78, 191, 80, 81, 82, 13, 312, 311, 310, 415, 308,
+                 324, 318, 402, 317, 14, 87, 178, 88, 95],
 
-    // Eyeshadow (upper eyelid region approximations)
-    left_eyeshadow: [33, 246, 161, 160, 159, 158, 157, 173, 133, 155, 154, 153, 145, 144, 163, 7],
-    right_eyeshadow: [263, 466, 388, 387, 386, 385, 384, 398, 362, 382, 381, 380, 374, 373, 390, 249]
+    // --- Eyebrows ---
+    left_eyebrow:  [46, 53, 52, 65, 55, 107, 66, 105, 63, 70],
+    right_eyebrow: [276, 283, 282, 295, 285, 336, 296, 334, 293, 300],
+
+    // --- Eyeshadow (upper eyelid band from lash line upward) ---
+    left_eyeshadow:  [33, 246, 161, 160, 159, 158, 157, 173, 133, 155, 154, 153, 145, 144, 163, 7],
+    right_eyeshadow: [263, 466, 388, 387, 386, 385, 384, 398, 362, 382, 381, 380, 374, 373, 390, 249],
+
+    // --- Eyeliner (tight strip at the upper lash line where lid meets lashes) ---
+    // Rendered as a stroke, not a fill — see drawEyeLine()
+    left_eyeliner:  [33, 246, 161, 160, 159, 158, 157, 173, 133, 155],
+    right_eyeliner: [263, 466, 388, 387, 386, 385, 384, 398, 362, 382],
+
+    // --- Eyelash (outermost upper lash-edge, slightly shorter arc) ---
+    // Rendered as a slightly thicker stroke — see drawEyeLine()
+    left_eyelash:  [33, 246, 161, 160, 159, 158, 157, 173, 133],
+    right_eyelash: [263, 466, 388, 387, 386, 385, 384, 398, 362],
+
+    // --- Blush (cheek area below the cheekbone, lateral to the nose) ---
+    left_blush:  [116, 117, 118, 119, 120, 121, 128, 129, 209, 49,
+                  187, 207, 206, 203, 142, 126, 100, 101, 50, 36],
+    right_blush: [345, 346, 347, 348, 349, 350, 357, 358, 429, 279,
+                  411, 427, 426, 423, 371, 355, 329, 330, 280, 266],
+
+    // --- Concealer (under-eye hollow, below the lower eyelid) ---
+    left_concealer:  [33, 7, 163, 144, 145, 153, 154, 155, 133,
+                      130, 25, 110, 24, 23, 22, 26, 112, 243],
+    right_concealer: [263, 249, 390, 373, 374, 380, 381, 382, 362,
+                      359, 255, 339, 254, 253, 252, 256, 341, 463],
+
+    // --- Foundation (full face oval, chin to hairline) ---
+    face_oval: [10, 338, 297, 332, 284, 251, 389, 356, 454, 323, 361, 288,
+                397, 365, 379, 378, 400, 377, 152, 148, 176, 149, 150, 136,
+                172,  58, 132,  93, 234, 127, 162,  21,  54, 103,  67, 109],
   };
 
   const ApothecaAR = {
@@ -560,29 +596,51 @@
     },
 
     drawOverlays: function (ctx, landmarks, t) {
-      // Lips (only draw if user selected a lips region)
-      const lipsSel = this.selectedRegions.lips || this.selectedRegions.upper_lip || this.selectedRegions.lower_lip;
-      if (lipsSel) {
-        this.drawRegionPolygon(ctx, landmarks, REGION_POLYGONS.lips_outer, lipsSel, 0.35, t);
-        this.drawRegionPolygon(ctx, landmarks, REGION_POLYGONS.lips_inner, lipsSel, 0.22, t);
+      // Lips — outer shape with inner mouth opening removed so colour stays
+      // only on the lip surface (not inside an open mouth).
+      if (this.selectedRegions.lips) {
+        this.drawLips(ctx, landmarks, this.selectedRegions.lips, t);
       }
 
-      // Brows
-      const browSel = this.selectedRegions.brows || this.selectedRegions.left_brow || this.selectedRegions.right_brow;
-      if (browSel) {
-        const left = this.selectedRegions.left_brow || this.selectedRegions.brows || browSel;
-        const right = this.selectedRegions.right_brow || this.selectedRegions.brows || browSel;
-        this.drawRegionPolygon(ctx, landmarks, REGION_POLYGONS.left_brow, left, 0.45, t);
-        this.drawRegionPolygon(ctx, landmarks, REGION_POLYGONS.right_brow, right, 0.45, t);
+      // Eyebrows
+      if (this.selectedRegions.eyebrows) {
+        this.drawRegionPolygon(ctx, landmarks, REGION_POLYGONS.left_eyebrow,  this.selectedRegions.eyebrows, 0.55, t);
+        this.drawRegionPolygon(ctx, landmarks, REGION_POLYGONS.right_eyebrow, this.selectedRegions.eyebrows, 0.55, t);
       }
 
-      // Eyeshadow
-      const shadowSel = this.selectedRegions.eyeshadow || this.selectedRegions.left_eyeshadow || this.selectedRegions.right_eyeshadow;
-      if (shadowSel) {
-        const left = this.selectedRegions.left_eyeshadow || this.selectedRegions.eyeshadow || shadowSel;
-        const right = this.selectedRegions.right_eyeshadow || this.selectedRegions.eyeshadow || shadowSel;
-        this.drawRegionPolygon(ctx, landmarks, REGION_POLYGONS.left_eyeshadow, left, 0.25, t);
-        this.drawRegionPolygon(ctx, landmarks, REGION_POLYGONS.right_eyeshadow, right, 0.25, t);
+      // Eyeshadow (soft blend over the upper eyelid)
+      if (this.selectedRegions.eyeshadow) {
+        this.drawRegionPolygon(ctx, landmarks, REGION_POLYGONS.left_eyeshadow,  this.selectedRegions.eyeshadow, 0.28, t);
+        this.drawRegionPolygon(ctx, landmarks, REGION_POLYGONS.right_eyeshadow, this.selectedRegions.eyeshadow, 0.28, t);
+      }
+
+      // Eyeliner (thin stroked line along the upper lash line)
+      if (this.selectedRegions.eyeliner) {
+        this.drawEyeLine(ctx, landmarks, REGION_POLYGONS.left_eyeliner,  this.selectedRegions.eyeliner, 2, 0.85, t);
+        this.drawEyeLine(ctx, landmarks, REGION_POLYGONS.right_eyeliner, this.selectedRegions.eyeliner, 2, 0.85, t);
+      }
+
+      // Eyelash (slightly thicker stroke at the outermost lash edge)
+      if (this.selectedRegions.eyelash) {
+        this.drawEyeLine(ctx, landmarks, REGION_POLYGONS.left_eyelash,  this.selectedRegions.eyelash, 3, 0.90, t);
+        this.drawEyeLine(ctx, landmarks, REGION_POLYGONS.right_eyelash, this.selectedRegions.eyelash, 3, 0.90, t);
+      }
+
+      // Blush (sheer colour wash over the cheeks)
+      if (this.selectedRegions.blush) {
+        this.drawRegionPolygon(ctx, landmarks, REGION_POLYGONS.left_blush,  this.selectedRegions.blush, 0.18, t);
+        this.drawRegionPolygon(ctx, landmarks, REGION_POLYGONS.right_blush, this.selectedRegions.blush, 0.18, t);
+      }
+
+      // Concealer (very sheer tint under the eye)
+      if (this.selectedRegions.concealer) {
+        this.drawRegionPolygon(ctx, landmarks, REGION_POLYGONS.left_concealer,  this.selectedRegions.concealer, 0.20, t);
+        this.drawRegionPolygon(ctx, landmarks, REGION_POLYGONS.right_concealer, this.selectedRegions.concealer, 0.20, t);
+      }
+
+      // Foundation (sheer tint over the full face oval)
+      if (this.selectedRegions.foundation) {
+        this.drawRegionPolygon(ctx, landmarks, REGION_POLYGONS.face_oval, this.selectedRegions.foundation, 0.18, t);
       }
     },
 
@@ -620,6 +678,121 @@
       ctx.closePath();
       ctx.fill();
       ctx.restore();
+    },
+
+    /**
+     * Draw lips with mouth-hole compositing.
+     *
+     * The outer lip contour is filled on an off-screen canvas, then the inner
+     * mouth-opening polygon is punched out (destination-out) before compositing
+     * onto the main canvas. This ensures colour only appears on the lip surface
+     * and never inside an open mouth.
+     *
+     * @param {CanvasRenderingContext2D} ctx
+     * @param {Array}  landmarks  MediaPipe normalised landmark array
+     * @param {string} color      CSS colour
+     * @param {Object} t          Render transform { srcW, srcH, scale, dx, dy }
+     */
+    drawLips: function (ctx, landmarks, color, t) {
+      const bufW = canvasEl.width;
+      const bufH = canvasEl.height;
+      const dpr  = window.devicePixelRatio || 1;
+      const cssW = parseInt(canvasEl.style.width,  10) || Math.round(bufW / dpr);
+      const cssH = parseInt(canvasEl.style.height, 10) || Math.round(bufH / dpr);
+
+      // Off-screen canvas with the same physical pixel buffer as the main canvas
+      const oc   = document.createElement('canvas');
+      oc.width   = bufW;
+      oc.height  = bufH;
+      const octx = oc.getContext('2d');
+      // Mirror the DPR transform so landmark coordinates map identically
+      octx.setTransform(dpr, 0, 0, dpr, 0, 0);
+
+      // 1. Fill the outer lip shape
+      octx.fillStyle   = color;
+      octx.globalAlpha = 0.70;
+      this._tracePath(octx, landmarks, REGION_POLYGONS.lips_outer, t);
+      octx.fill();
+
+      // 2. Punch out the inner mouth opening so open-mouth gap is transparent
+      octx.globalCompositeOperation = 'destination-out';
+      octx.globalAlpha = 1.0;
+      this._tracePath(octx, landmarks, REGION_POLYGONS.lips_inner, t);
+      octx.fill();
+
+      // 3. Composite the off-screen result onto the main canvas.
+      //    ctx has a DPR transform so we draw in CSS pixel space (cssW × cssH).
+      ctx.save();
+      ctx.globalAlpha = 1.0;
+      ctx.drawImage(oc, 0, 0, bufW, bufH, 0, 0, cssW, cssH);
+      ctx.restore();
+    },
+
+    /**
+     * Draw eyeliner or eyelash as a stroked open path along landmark indices.
+     * Used instead of a filled polygon so the result is a thin, precise line.
+     *
+     * @param {CanvasRenderingContext2D} ctx
+     * @param {Array}  landmarks
+     * @param {Array}  indices       Landmark index array (open path, not closed)
+     * @param {string} color
+     * @param {number} lineWidthPx   Stroke width in CSS pixels
+     * @param {number} alpha
+     * @param {Object} t             Render transform
+     */
+    drawEyeLine: function (ctx, landmarks, indices, color, lineWidthPx, alpha, t) {
+      if (!indices || indices.length < 2) return;
+
+      const srcW  = (t && t.srcW) || 0;
+      const srcH  = (t && t.srcH) || 0;
+      const scale = (t && t.scale) || 1;
+      const dx    = (t && t.dx)   || 0;
+      const dy    = (t && t.dy)   || 0;
+
+      ctx.save();
+      ctx.globalAlpha = Math.max(0, Math.min(1, alpha || 0.9));
+      ctx.strokeStyle = color;
+      ctx.lineWidth   = lineWidthPx || 2;
+      ctx.lineCap     = 'round';
+      ctx.lineJoin    = 'round';
+
+      ctx.beginPath();
+      const first = landmarks[indices[0]];
+      ctx.moveTo((first.x * srcW * scale) + dx, (first.y * srcH * scale) + dy);
+      for (let i = 1; i < indices.length; i++) {
+        const p = landmarks[indices[i]];
+        ctx.lineTo((p.x * srcW * scale) + dx, (p.y * srcH * scale) + dy);
+      }
+      ctx.stroke();
+      ctx.restore();
+    },
+
+    /**
+     * Trace a closed landmark path without filling.
+     * Used internally by drawLips() for compositing.
+     *
+     * @param {CanvasRenderingContext2D} ctx
+     * @param {Array}  landmarks
+     * @param {Array}  indices
+     * @param {Object} t  Render transform
+     */
+    _tracePath: function (ctx, landmarks, indices, t) {
+      if (!indices || indices.length < 3) return;
+
+      const srcW  = (t && t.srcW) || 0;
+      const srcH  = (t && t.srcH) || 0;
+      const scale = (t && t.scale) || 1;
+      const dx    = (t && t.dx)   || 0;
+      const dy    = (t && t.dy)   || 0;
+
+      const first = landmarks[indices[0]];
+      ctx.beginPath();
+      ctx.moveTo((first.x * srcW * scale) + dx, (first.y * srcH * scale) + dy);
+      for (let i = 1; i < indices.length; i++) {
+        const p = landmarks[indices[i]];
+        ctx.lineTo((p.x * srcW * scale) + dx, (p.y * srcH * scale) + dy);
+      }
+      ctx.closePath();
     },
 
     /**
