@@ -41,20 +41,30 @@ class Apotheca_AR_Attribute_Face_Region {
     /**
      * Allowed enum values.
      *
+     * Enum: none | lips | eyebrows | eyelash | eyeshadow | eyeliner | blush | concealer | foundation
+     *
+     * - lips       : Both upper and lower lips; colour must not appear inside the open mouth.
+     * - eyebrows   : The eyebrow area.
+     * - eyelash    : Applied to the eyelashes of the eye.
+     * - eyeshadow  : The upper eyelid area.
+     * - eyeliner   : Upper eyelid edge where the eye meets the eyelid.
+     * - blush      : The cheeks.
+     * - concealer  : The under-eye area.
+     * - foundation : Full face from chin to hairline.
+     *
      * @return array<string, string> value => label
      */
     public static function get_regions() {
         return array(
-            'none'      => __('None', 'apotheca-ar'),
-            'lips'      => __('Lips', 'apotheca-ar'),
-            'upper_lip' => __('Upper Lip', 'apotheca-ar'),
-            'lower_lip' => __('Lower Lip', 'apotheca-ar'),
-            'brows'     => __('Brows', 'apotheca-ar'),
-            'eyeliner'  => __('Eyeliner', 'apotheca-ar'),
-            'eyeshadow' => __('Eyeshadow', 'apotheca-ar'),
-            'eyelash'   => __('Eyelash', 'apotheca-ar'),
-            'blush'     => __('Blush', 'apotheca-ar'),
-            'foundation'=> __('Foundation', 'apotheca-ar'),
+            'none'       => __('None', 'apotheca-ar'),
+            'lips'       => __('Lips', 'apotheca-ar'),
+            'eyebrows'   => __('Eyebrows', 'apotheca-ar'),
+            'eyelash'    => __('Eyelash', 'apotheca-ar'),
+            'eyeshadow'  => __('Eyeshadow', 'apotheca-ar'),
+            'eyeliner'   => __('Eyeliner', 'apotheca-ar'),
+            'blush'      => __('Blush', 'apotheca-ar'),
+            'concealer'  => __('Concealer', 'apotheca-ar'),
+            'foundation' => __('Foundation', 'apotheca-ar'),
         );
     }
 
