@@ -80,6 +80,397 @@
                 172,  58, 132,  93, 234, 127, 162,  21,  54, 103,  67, 109],
   };
 
+  /**
+   * REGION_TRIANGLES — precomputed flat triangle index lists for WebGL drawElements.
+   *
+   * Derivation methodology (Option A — precomputed, no per-frame triangulation):
+   *   Each region boundary from REGION_POLYGONS is a closed polygon [v0, v1, … vN-1].
+   *   A centroid-fan (ear-0) triangulation from the first vertex v0 produces N-2 triangles:
+   *     [v0, v1, v2],  [v0, v2, v3],  …  [v0, v(N-2), v(N-1)]
+   *   This is O(N) and computed at author-time — never at runtime.
+   *
+   *   Lips are split into lips_outer (filled region) and lips_inner (mouth-opening hole).
+   *   The hole is punched out via the WebGL stencil buffer in MakeupWebGL.drawLipsGL():
+   *     1. Write outer triangles to stencil (→ 1 everywhere outer covers)
+   *     2. Write inner triangles to stencil (→ 2 where mouth opening covers)
+   *     3. Colour pass: draw outer triangles only where stencil == 1 (not inside mouth)
+   *
+   *   Triangle index ranges stay within the 468-landmark FaceMesh space (Uint16 safe).
+   *   Every list is directly usable as a Uint16Array IBO with gl.TRIANGLES.
+   */
+  const REGION_TRIANGLES = {
+
+    // --- Lips outer (20 boundary verts → 18 triangles) ---
+    // Fan from 61 (left mouth corner) across the full two-lip outer contour.
+    // Covers: upper-lip outer edge (185 40 39 37 0 267 269 270 409)
+    //         right corner (291) + lower-lip outer edge (375 321 405 314 17 84 181 91 146)
+    lips_outer: [
+       61,185, 40,   61, 40, 39,   61, 39, 37,   61, 37,  0,
+       61,  0,267,   61,267,269,   61,269,270,   61,270,409,
+       61,409,291,   61,291,375,   61,375,321,   61,321,405,
+       61,405,314,   61,314, 17,   61, 17, 84,   61, 84,181,
+       61,181, 91,   61, 91,146,
+    ],
+
+    // --- Lips inner / mouth opening (20 boundary verts → 18 triangles) ---
+    // Fan from 78 (left inner corner). Used as stencil mask only; never colour-filled.
+    // Upper inner: 191 80 81 82 13 312 311 310 415 308
+    // Lower inner: 324 318 402 317 14 87 178 88 95
+    lips_inner: [
+       78,191, 80,   78, 80, 81,   78, 81, 82,   78, 82, 13,
+       78, 13,312,   78,312,311,   78,311,310,   78,310,415,
+       78,415,308,   78,308,324,   78,324,318,   78,318,402,
+       78,402,317,   78,317, 14,   78, 14, 87,   78, 87,178,
+       78,178, 88,   78, 88, 95,
+    ],
+
+    // --- Left eyebrow (10 boundary verts → 8 triangles) ---
+    // Fan from 46 across: 53 52 65 55 107 66 105 63 70
+    left_brow: [
+       46, 53, 52,   46, 52, 65,   46, 65, 55,   46, 55,107,
+       46,107, 66,   46, 66,105,   46,105, 63,   46, 63, 70,
+    ],
+
+    // --- Right eyebrow (10 boundary verts → 8 triangles) ---
+    // Fan from 276 across: 283 282 295 285 336 296 334 293 300
+    right_brow: [
+      276,283,282,  276,282,295,  276,295,285,  276,285,336,
+      276,336,296,  276,296,334,  276,334,293,  276,293,300,
+    ],
+
+    // --- Left eyeshadow / upper eyelid (16 boundary verts → 14 triangles) ---
+    // Fan from 33 (inner eye corner) across the upper-lid arc and lower-lid base.
+    // Covers the band from lash line up toward the brow.
+    left_eyeshadow: [
+       33,246,161,   33,161,160,   33,160,159,   33,159,158,
+       33,158,157,   33,157,173,   33,173,133,   33,133,155,
+       33,155,154,   33,154,153,   33,153,145,   33,145,144,
+       33,144,163,   33,163,  7,
+    ],
+
+    // --- Right eyeshadow / upper eyelid (16 boundary verts → 14 triangles) ---
+    // Fan from 263 (inner eye corner) mirroring the left side.
+    right_eyeshadow: [
+      263,466,388,  263,388,387,  263,387,386,  263,386,385,
+      263,385,384,  263,384,398,  263,398,362,  263,362,382,
+      263,382,381,  263,381,380,  263,380,374,  263,374,373,
+      263,373,390,  263,390,249,
+    ],
+  };
+
+  /* ─────────────────────────────────────────────────────────────────────────
+   * MakeupWebGL — WebGL makeup overlay renderer
+   *
+   * Creates a transparent WebGL canvas positioned directly over the main
+   * 2D camera canvas (z-index above it, pointer-events: none).  Each frame:
+   *   1. clear()                — wipe the overlay
+   *   2. updateLandmarks(lm,t)  — upload 468 vertex positions to the GPU VBO
+   *   3. drawRegion / drawLipsGL — one drawElements call per active region
+   *
+   * Falls back gracefully (ready === false) if WebGL is unavailable;
+   * the existing Canvas 2D path then handles all rendering.
+   * ───────────────────────────────────────────────────────────────────────── */
+  const MakeupWebGL = (function () {
+    'use strict';
+
+    // ── Vertex shader ──────────────────────────────────────────────────────
+    // Receives 2-D canvas pixel coordinates and converts to WebGL clip space.
+    // Y is negated because canvas Y increases downward, GL Y increases upward.
+    const VERT_SRC = [
+      'attribute vec2 a_pos;',
+      'uniform vec2 u_res;',
+      'void main(){',
+      '  vec2 c=(a_pos/u_res)*2.0-1.0;',
+      '  gl_Position=vec4(c.x,-c.y,0.0,1.0);',
+      '}',
+    ].join('\n');
+
+    // ── Fragment shader ────────────────────────────────────────────────────
+    // Uniforms:
+    //   u_color     vec3  RGB in [0,1]
+    //   u_intensity float  Overall opacity/strength [0,1]
+    //   u_feather   float  Edge-softness scale [0,1].
+    //               Currently scales final alpha; a signed-distance-field
+    //               approach can be dropped in here when per-vertex UVs are added.
+    const FRAG_SRC = [
+      'precision mediump float;',
+      'uniform vec3  u_color;',
+      'uniform float u_intensity;',
+      'uniform float u_feather;',
+      'void main(){',
+      '  float a=u_intensity*(1.0-u_feather*0.35);',
+      '  gl_FragColor=vec4(u_color,clamp(a,0.0,1.0));',
+      '}',
+    ].join('\n');
+
+    // ── Private state ──────────────────────────────────────────────────────
+    let gl       = null;
+    let prog     = null;
+    let locs     = {};
+    let vbo      = null;   // DYNAMIC_DRAW VBO — 468 landmarks × 2 floats, updated per frame
+    let ibos     = {};     // { key: { buf: WebGLBuffer, count: number } }
+    let overlayEl = null;
+
+    // ── Helpers ────────────────────────────────────────────────────────────
+    function compile(type, src) {
+      const s = gl.createShader(type);
+      gl.shaderSource(s, src);
+      gl.compileShader(s);
+      if (!gl.getShaderParameter(s, gl.COMPILE_STATUS)) {
+        console.warn('[Apotheca AR GL] Shader error:', gl.getShaderInfoLog(s));
+        gl.deleteShader(s);
+        return null;
+      }
+      return s;
+    }
+
+    function buildProgram() {
+      const vs = compile(gl.VERTEX_SHADER,   VERT_SRC);
+      const fs = compile(gl.FRAGMENT_SHADER, FRAG_SRC);
+      if (!vs || !fs) return null;
+      const p = gl.createProgram();
+      gl.attachShader(p, vs);
+      gl.attachShader(p, fs);
+      gl.linkProgram(p);
+      if (!gl.getProgramParameter(p, gl.LINK_STATUS)) {
+        console.warn('[Apotheca AR GL] Link error:', gl.getProgramInfoLog(p));
+        return null;
+      }
+      return p;
+    }
+
+    // Parse any CSS colour string (#rrggbb, #rgb, rgb()) → [r,g,b] in 0..1
+    function toRGB(color) {
+      if (!color || color === 'none') return [1, 0, 0];
+      let hex = color.trim();
+      if (hex.charAt(0) === '#') {
+        hex = hex.slice(1);
+        if (hex.length === 3) { hex = hex[0]+hex[0]+hex[1]+hex[1]+hex[2]+hex[2]; }
+        const n = parseInt(hex, 16);
+        return [(n >> 16 & 255) / 255, (n >> 8 & 255) / 255, (n & 255) / 255];
+      }
+      const m = hex.match(/rgb\(\s*(\d+),\s*(\d+),\s*(\d+)/i);
+      if (m) return [+m[1]/255, +m[2]/255, +m[3]/255];
+      return [1, 0, 0];
+    }
+
+    // Upload vertex positions from current landmark frame into the VBO
+    function uploadVerts(landmarks, t) {
+      const srcW = t.srcW, srcH = t.srcH, scale = t.scale, dx = t.dx, dy = t.dy;
+      const verts = new Float32Array(468 * 2);
+      for (let i = 0; i < 468; i++) {
+        const lm = landmarks[i];
+        if (!lm) continue;
+        verts[i * 2]     = (lm.x * srcW * scale) + dx;
+        verts[i * 2 + 1] = (lm.y * srcH * scale) + dy;
+      }
+      gl.bindBuffer(gl.ARRAY_BUFFER, vbo);
+      gl.bufferSubData(gl.ARRAY_BUFFER, 0, verts);
+    }
+
+    // Bind VBO + set attrib pointer (called before every draw)
+    function bindVBO() {
+      gl.bindBuffer(gl.ARRAY_BUFFER, vbo);
+      gl.enableVertexAttribArray(locs.a_pos);
+      gl.vertexAttribPointer(locs.a_pos, 2, gl.FLOAT, false, 0, 0);
+    }
+
+    // ── Public API ─────────────────────────────────────────────────────────
+    return {
+      ready: false,
+
+      /**
+       * Initialise the WebGL overlay canvas and compile all shaders / IBOs.
+       * Call once when the modal first opens (after canvasEl is known).
+       *
+       * @param {HTMLCanvasElement} mainCanvas  The existing 2D camera canvas
+       * @returns {boolean}  true if WebGL is available
+       */
+      init: function (mainCanvas) {
+        // Create overlay canvas, insert immediately after the 2D canvas
+        overlayEl = document.createElement('canvas');
+        overlayEl.id = 'apotheca-ar-makeup-overlay';
+        overlayEl.style.cssText =
+          'position:absolute;top:0;left:0;width:100%;height:100%;' +
+          'pointer-events:none;z-index:2;';
+        mainCanvas.parentNode.insertBefore(overlayEl, mainCanvas.nextSibling);
+        overlayEl.width  = mainCanvas.width;
+        overlayEl.height = mainCanvas.height;
+
+        // Request WebGL with alpha + stencil (stencil needed for lips cutout)
+        gl = overlayEl.getContext('webgl', {
+          alpha: true, premultipliedAlpha: false, stencil: true
+        });
+        if (!gl) {
+          console.warn('[Apotheca AR GL] WebGL unavailable — using Canvas 2D fallback');
+          overlayEl.remove();
+          overlayEl = null;
+          return false;
+        }
+
+        // Compile shaders
+        prog = buildProgram();
+        if (!prog) {
+          overlayEl.remove();
+          overlayEl = null;
+          return false;
+        }
+
+        // Cache uniform / attribute locations
+        locs.a_pos       = gl.getAttribLocation( prog, 'a_pos');
+        locs.u_res       = gl.getUniformLocation(prog, 'u_res');
+        locs.u_color     = gl.getUniformLocation(prog, 'u_color');
+        locs.u_intensity = gl.getUniformLocation(prog, 'u_intensity');
+        locs.u_feather   = gl.getUniformLocation(prog, 'u_feather');
+
+        // VBO — 468 landmarks × 2 floats (x,y in canvas pixels), updated per frame
+        vbo = gl.createBuffer();
+        gl.bindBuffer(gl.ARRAY_BUFFER, vbo);
+        gl.bufferData(gl.ARRAY_BUFFER, 468 * 2 * 4, gl.DYNAMIC_DRAW);
+
+        // Build one IBO per REGION_TRIANGLES entry
+        ibos = {};
+        Object.keys(REGION_TRIANGLES).forEach(function (key) {
+          const data = new Uint16Array(REGION_TRIANGLES[key]);
+          const buf  = gl.createBuffer();
+          gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, buf);
+          gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, data, gl.STATIC_DRAW);
+          ibos[key] = { buf: buf, count: data.length };
+        });
+
+        // Blending — standard over compositing, src-alpha / one-minus-src-alpha
+        gl.enable(gl.BLEND);
+        gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
+
+        this.ready = true;
+        return true;
+      },
+
+      /**
+       * Match the overlay canvas dimensions to the (possibly resized) main canvas.
+       * Call from the same sizeCanvasToWrapper path that resizes the 2D canvas.
+       *
+       * @param {HTMLCanvasElement} mainCanvas
+       */
+      resize: function (mainCanvas) {
+        if (!overlayEl) return;
+        overlayEl.width  = mainCanvas.width;
+        overlayEl.height = mainCanvas.height;
+        overlayEl.style.width  = mainCanvas.style.width;
+        overlayEl.style.height = mainCanvas.style.height;
+      },
+
+      /**
+       * Clear the overlay every frame before drawing new overlays.
+       */
+      clear: function () {
+        if (!gl) return;
+        gl.viewport(0, 0, overlayEl.width, overlayEl.height);
+        gl.clearColor(0, 0, 0, 0);
+        gl.clear(gl.COLOR_BUFFER_BIT | gl.STENCIL_BUFFER_BIT);
+      },
+
+      /**
+       * Upload this frame's landmark positions to the GPU.
+       * Must be called once per frame before any drawRegion / drawLipsGL calls.
+       *
+       * @param {Array}  landmarks  MediaPipe multiFaceLandmarks[0]
+       * @param {Object} t          Render transform { srcW, srcH, scale, dx, dy }
+       */
+      updateLandmarks: function (landmarks, t) {
+        if (!gl || !landmarks) return;
+        uploadVerts(landmarks, t);
+      },
+
+      /**
+       * Draw a single region using gl.drawElements (TRIANGLES).
+       * The IBO for `iboKey` must exist in REGION_TRIANGLES.
+       *
+       * @param {string} iboKey     Key in REGION_TRIANGLES (e.g. 'left_brow')
+       * @param {string} colorHex   CSS colour string
+       * @param {number} intensity  Alpha multiplier [0,1]
+       * @param {number} feather    Edge-softness [0,1] — scales fragment alpha
+       */
+      drawRegion: function (iboKey, colorHex, intensity, feather) {
+        if (!gl || !ibos[iboKey]) return;
+        const rgb = toRGB(colorHex);
+
+        gl.useProgram(prog);
+        gl.uniform2f(locs.u_res,       overlayEl.width, overlayEl.height);
+        gl.uniform3f(locs.u_color,     rgb[0], rgb[1], rgb[2]);
+        gl.uniform1f(locs.u_intensity, intensity != null ? intensity : 0.5);
+        gl.uniform1f(locs.u_feather,   feather   != null ? feather   : 0.0);
+
+        bindVBO();
+        gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, ibos[iboKey].buf);
+        gl.drawElements(gl.TRIANGLES, ibos[iboKey].count, gl.UNSIGNED_SHORT, 0);
+      },
+
+      /**
+       * Draw lips with stencil-buffer mouth cutout so colour never fills an open mouth.
+       *
+       * Algorithm (3 passes):
+       *   Pass 1 — stencil write, no colour:
+       *     Draw lips_outer triangles  → stencil becomes 1 in outer-lip region
+       *     Draw lips_inner triangles  → stencil increments to 2 in mouth-opening region
+       *   Pass 2 — colour draw:
+       *     stencilFunc EQUAL 1 — passes only where stencil == 1 (lip flesh, not interior)
+       *     Draw lips_outer triangles with colour + intensity + feather uniforms
+       *   Pass 3 — restore GL state
+       *
+       * @param {string} colorHex
+       * @param {number} intensity  Default 0.65
+       * @param {number} feather    Default 0.0
+       */
+      drawLipsGL: function (colorHex, intensity, feather) {
+        if (!gl || !ibos.lips_outer || !ibos.lips_inner) return;
+        const rgb = toRGB(colorHex);
+
+        gl.enable(gl.STENCIL_TEST);
+        gl.useProgram(prog);
+        gl.uniform2f(locs.u_res, overlayEl.width, overlayEl.height);
+        bindVBO();
+
+        // ── Pass 1: build stencil — no colour output ──
+        gl.colorMask(false, false, false, false);
+        gl.stencilFunc(gl.ALWAYS, 0, 0xFF);
+
+        // Outer lip → stencil = 1
+        gl.stencilOp(gl.KEEP, gl.KEEP, gl.INCR);
+        gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, ibos.lips_outer.buf);
+        gl.drawElements(gl.TRIANGLES, ibos.lips_outer.count, gl.UNSIGNED_SHORT, 0);
+
+        // Inner mouth → stencil = 2 where mouth opening overlaps
+        gl.stencilOp(gl.KEEP, gl.KEEP, gl.INCR);
+        gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, ibos.lips_inner.buf);
+        gl.drawElements(gl.TRIANGLES, ibos.lips_inner.count, gl.UNSIGNED_SHORT, 0);
+
+        // ── Pass 2: colour — only where stencil == 1 (lip, not mouth hole) ──
+        gl.colorMask(true, true, true, true);
+        gl.stencilFunc(gl.EQUAL, 1, 0xFF);
+        gl.stencilOp(gl.KEEP, gl.KEEP, gl.KEEP);
+
+        gl.uniform3f(locs.u_color,     rgb[0], rgb[1], rgb[2]);
+        gl.uniform1f(locs.u_intensity, intensity != null ? intensity : 0.65);
+        gl.uniform1f(locs.u_feather,   feather   != null ? feather   : 0.0);
+
+        gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, ibos.lips_outer.buf);
+        gl.drawElements(gl.TRIANGLES, ibos.lips_outer.count, gl.UNSIGNED_SHORT, 0);
+
+        // ── Pass 3: restore state ──
+        gl.disable(gl.STENCIL_TEST);
+        gl.clear(gl.STENCIL_BUFFER_BIT);
+      },
+
+      /** Remove the overlay canvas and reset state (call on plugin teardown). */
+      destroy: function () {
+        if (overlayEl) { overlayEl.remove(); overlayEl = null; }
+        gl = null;
+        this.ready = false;
+      },
+    };
+  })();
+
   const ApothecaAR = {
     // Per-region selections (face regions from PHP attribute mapping)
     selectedRegions: {},
@@ -276,6 +667,13 @@
 
       ctx2d = canvasEl.getContext('2d');
 
+      // Initialise the WebGL makeup overlay (once per page load).
+      // MakeupWebGL creates a transparent canvas layered above canvasEl.
+      if (!MakeupWebGL.ready) {
+        MakeupWebGL.init(canvasEl);
+      }
+      MakeupWebGL.clear();
+
       // Start MediaPipe
       this.startMediaPipe();
     },
@@ -321,6 +719,7 @@
       $('#apotheca-ar-modal').fadeOut(300);
       $('body').removeClass('apotheca-ar-active');
 
+      MakeupWebGL.clear();   // wipe makeup overlay immediately on close
       this.stopMediaPipe();
     },
 
@@ -431,6 +830,9 @@
             ctx2d.setTransform(dpr, 0, 0, dpr, 0, 0);
             ctx2d.imageSmoothingEnabled = true;
           }
+
+          // Keep the WebGL overlay in sync with the 2D canvas dimensions
+          MakeupWebGL.resize(canvasEl);
 
           $('#apotheca-ar-loading').fadeOut(200);
         };
@@ -602,37 +1004,61 @@
     },
 
     drawOverlays: function (ctx, landmarks, t) {
-      // Lips — outer shape with inner mouth opening removed so colour stays
-      // only on the lip surface (not inside an open mouth).
-      if (this.selectedRegions.lips) {
-        this.drawLips(ctx, landmarks, this.selectedRegions.lips, t);
+      const gl = MakeupWebGL.ready;
+
+      // ── WebGL path: lips / eyebrows / eyeshadow ───────────────────────
+      // These regions have precomputed triangle IBOs in REGION_TRIANGLES.
+      // Each is a single gl.drawElements call with colour, intensity, feather uniforms.
+      // When WebGL is unavailable the Canvas 2D fallback below is used instead.
+      if (gl) {
+        MakeupWebGL.clear();
+        MakeupWebGL.updateLandmarks(landmarks, t);
+
+        // Lips — stencil-buffer mouth cutout keeps colour off the open-mouth interior
+        if (this.selectedRegions.lips) {
+          MakeupWebGL.drawLipsGL(this.selectedRegions.lips, 0.65, 0.0);
+        }
+
+        // Eyebrows — left and right as separate drawElements calls
+        if (this.selectedRegions.eyebrows) {
+          MakeupWebGL.drawRegion('left_brow',  this.selectedRegions.eyebrows, 0.55, 0.0);
+          MakeupWebGL.drawRegion('right_brow', this.selectedRegions.eyebrows, 0.55, 0.0);
+        }
+
+        // Eyeshadow — upper eyelid area, soft blend
+        if (this.selectedRegions.eyeshadow) {
+          MakeupWebGL.drawRegion('left_eyeshadow',  this.selectedRegions.eyeshadow, 0.28, 0.15);
+          MakeupWebGL.drawRegion('right_eyeshadow', this.selectedRegions.eyeshadow, 0.28, 0.15);
+        }
+      } else {
+        // Canvas 2D fallback for lips / eyebrows / eyeshadow
+        if (this.selectedRegions.lips) {
+          this.drawLips(ctx, landmarks, this.selectedRegions.lips, t);
+        }
+        if (this.selectedRegions.eyebrows) {
+          this.drawRegionPolygon(ctx, landmarks, REGION_POLYGONS.left_eyebrow,  this.selectedRegions.eyebrows, 0.55, t);
+          this.drawRegionPolygon(ctx, landmarks, REGION_POLYGONS.right_eyebrow, this.selectedRegions.eyebrows, 0.55, t);
+        }
+        if (this.selectedRegions.eyeshadow) {
+          this.drawRegionPolygon(ctx, landmarks, REGION_POLYGONS.left_eyeshadow,  this.selectedRegions.eyeshadow, 0.28, t);
+          this.drawRegionPolygon(ctx, landmarks, REGION_POLYGONS.right_eyeshadow, this.selectedRegions.eyeshadow, 0.28, t);
+        }
       }
 
-      // Eyebrows
-      if (this.selectedRegions.eyebrows) {
-        this.drawRegionPolygon(ctx, landmarks, REGION_POLYGONS.left_eyebrow,  this.selectedRegions.eyebrows, 0.55, t);
-        this.drawRegionPolygon(ctx, landmarks, REGION_POLYGONS.right_eyebrow, this.selectedRegions.eyebrows, 0.55, t);
-      }
-
-      // Eyeshadow (soft blend over the upper eyelid)
-      if (this.selectedRegions.eyeshadow) {
-        this.drawRegionPolygon(ctx, landmarks, REGION_POLYGONS.left_eyeshadow,  this.selectedRegions.eyeshadow, 0.28, t);
-        this.drawRegionPolygon(ctx, landmarks, REGION_POLYGONS.right_eyeshadow, this.selectedRegions.eyeshadow, 0.28, t);
-      }
-
-      // Eyeliner (thin stroked line along the upper lash line)
+      // ── Canvas 2D path: remaining regions (no triangle mesh yet) ─────
+      // Eyeliner (thin stroke along the upper lash line)
       if (this.selectedRegions.eyeliner) {
         this.drawEyeLine(ctx, landmarks, REGION_POLYGONS.left_eyeliner,  this.selectedRegions.eyeliner, 2, 0.85, t);
         this.drawEyeLine(ctx, landmarks, REGION_POLYGONS.right_eyeliner, this.selectedRegions.eyeliner, 2, 0.85, t);
       }
 
-      // Eyelash (slightly thicker stroke at the outermost lash edge)
+      // Eyelash (slightly thicker stroke at the lash edge)
       if (this.selectedRegions.eyelash) {
         this.drawEyeLine(ctx, landmarks, REGION_POLYGONS.left_eyelash,  this.selectedRegions.eyelash, 3, 0.90, t);
         this.drawEyeLine(ctx, landmarks, REGION_POLYGONS.right_eyelash, this.selectedRegions.eyelash, 3, 0.90, t);
       }
 
-      // Blush (sheer colour wash over the cheeks)
+      // Blush (sheer wash over the cheeks)
       if (this.selectedRegions.blush) {
         this.drawRegionPolygon(ctx, landmarks, REGION_POLYGONS.left_blush,  this.selectedRegions.blush, 0.18, t);
         this.drawRegionPolygon(ctx, landmarks, REGION_POLYGONS.right_blush, this.selectedRegions.blush, 0.18, t);
@@ -644,7 +1070,7 @@
         this.drawRegionPolygon(ctx, landmarks, REGION_POLYGONS.right_concealer, this.selectedRegions.concealer, 0.20, t);
       }
 
-      // Foundation (sheer tint, extended to hairline — see drawFoundation())
+      // Foundation (sheer tint, extrapolated to hairline)
       if (this.selectedRegions.foundation) {
         this.drawFoundation(ctx, landmarks, this.selectedRegions.foundation, t);
       }
