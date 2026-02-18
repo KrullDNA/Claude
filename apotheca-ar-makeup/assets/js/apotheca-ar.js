@@ -53,15 +53,50 @@
       outer: 33,
       inner: 133,
       peak: 159,
-      // Full upper eyelid arc (outer → inner). These landmarks ride on the
-      // eyelid and move downward when the user blinks, giving live tracking.
-      upperLid: [33, 246, 161, 160, 159, 158, 157, 173, 133]
+      // Full upper-eyelid arc (outer → inner) — used for broad measurements.
+      upperLid: [33, 246, 161, 160, 159, 158, 157, 173, 133],
+      // Middle points ONLY (no corners) — these move most during blinks.
+      // Using only these gives ~3× more blink displacement than averaging the
+      // full arc which includes the near-static corner landmarks.
+      midUpperLid: [246, 161, 160, 159, 158, 157, 173]
     },
     right: {
       outer: 263,
       inner: 362,
       peak: 386,
-      upperLid: [263, 466, 388, 387, 386, 385, 384, 398, 362]
+      upperLid: [263, 466, 388, 387, 386, 385, 384, 398, 362],
+      midUpperLid: [466, 388, 387, 386, 385, 384, 398]
+    }
+  };
+
+  /**
+   * Per-region SVG overlay configuration.
+   *
+   * widthScale   – multiply measured eye width by this factor.  Values > 1
+   *               let the SVG extend beyond the corner landmarks.  The
+   *               extension is split: outerExtend fraction goes toward the
+   *               temple (outer corner, where cat-eye lashes/liner go), the
+   *               rest is symmetric.
+   *
+   * anchorBlend  – 0 = SVG bottom sits at the eye-corner baseline (local-Y 0),
+   *               1 = SVG bottom sits at the upper-lid PEAK (most negative
+   *               local-Y, highest on screen).  Eyelash uses 1 (roots at the
+   *               peak); eyeliner uses ~0.55 so the liner line lands lower.
+   *
+   * outerExtend  – fraction of eye width added exclusively on the OUTER side
+   *               (temple side) beyond the widthScale extension, so the flick /
+   *               outer lashes protrude past the eye corner naturally.
+   */
+  const SVG_OVERLAY_CFG = {
+    eyelash: {
+      widthScale:  1.25,   // 25% wider than outer→inner distance
+      anchorBlend: 1.0,    // bottom of SVG at the upper-lid peak (lash roots)
+      outerExtend: 0.12    // extra 12% only on the outer/temple side
+    },
+    eyeliner: {
+      widthScale:  1.35,   // wider — liner + cat-eye flick needs more room
+      anchorBlend: 0.5,    // halfway between peak and baseline → liner sits lower
+      outerExtend: 0.20    // 20% extra on outer side for the liner flick
     }
   };
 
@@ -631,8 +666,8 @@
       if (eyelinerColor) {
         const leftImg  = this._getSvgImage('eyeliner', 'left',  eyelinerColor);
         const rightImg = this._getSvgImage('eyeliner', 'right', eyelinerColor);
-        if (leftImg)  this.drawEyeSvgOverlay(ctx, landmarks, leftImg,  EYE_LANDMARKS.left.outer,  EYE_LANDMARKS.left.inner,  EYE_LANDMARKS.left.upperLid,  t);
-        if (rightImg) this.drawEyeSvgOverlay(ctx, landmarks, rightImg, EYE_LANDMARKS.right.outer, EYE_LANDMARKS.right.inner, EYE_LANDMARKS.right.upperLid, t);
+        if (leftImg)  this.drawEyeSvgOverlay(ctx, landmarks, leftImg,  EYE_LANDMARKS.left.outer,  EYE_LANDMARKS.left.inner,  EYE_LANDMARKS.left.midUpperLid,  SVG_OVERLAY_CFG.eyeliner, t);
+        if (rightImg) this.drawEyeSvgOverlay(ctx, landmarks, rightImg, EYE_LANDMARKS.right.outer, EYE_LANDMARKS.right.inner, EYE_LANDMARKS.right.midUpperLid, SVG_OVERLAY_CFG.eyeliner, t);
       }
 
       // Eyelash (SVG overlay — topmost eye layer)
@@ -640,8 +675,8 @@
       if (eyelashColor) {
         const leftImg  = this._getSvgImage('eyelash', 'left',  eyelashColor);
         const rightImg = this._getSvgImage('eyelash', 'right', eyelashColor);
-        if (leftImg)  this.drawEyeSvgOverlay(ctx, landmarks, leftImg,  EYE_LANDMARKS.left.outer,  EYE_LANDMARKS.left.inner,  EYE_LANDMARKS.left.upperLid,  t);
-        if (rightImg) this.drawEyeSvgOverlay(ctx, landmarks, rightImg, EYE_LANDMARKS.right.outer, EYE_LANDMARKS.right.inner, EYE_LANDMARKS.right.upperLid, t);
+        if (leftImg)  this.drawEyeSvgOverlay(ctx, landmarks, leftImg,  EYE_LANDMARKS.left.outer,  EYE_LANDMARKS.left.inner,  EYE_LANDMARKS.left.midUpperLid,  SVG_OVERLAY_CFG.eyelash, t);
+        if (rightImg) this.drawEyeSvgOverlay(ctx, landmarks, rightImg, EYE_LANDMARKS.right.outer, EYE_LANDMARKS.right.inner, EYE_LANDMARKS.right.midUpperLid, SVG_OVERLAY_CFG.eyelash, t);
       }
 
       // Lips (only draw if user selected a lips region)
@@ -705,81 +740,131 @@
     /**
      * Draw a colourised SVG image aligned to the upper eyelid of one eye.
      *
-     * Three problems this version solves vs. the previous one:
+     * Design decisions
+     * ─────────────────
+     * BLINK TRACKING  Previously we averaged the full upper-lid arc including
+     *   the relatively static corner landmarks (33/133, 263/362), which diluted
+     *   blink movement.  Now we use only the 7 MIDDLE arc points (midUpperLid)
+     *   which move ~3× more per blink.  We take the MINIMUM local-Y of those
+     *   points (the one closest to the screen top = the lid peak), which is the
+     *   most blink-sensitive single value.
      *
-     * 1. RIGHT EYE WAS APPEARING BELOW THE EYE
-     *    For the right eye, landmark 263 (outer) is to the RIGHT of landmark
-     *    362 (inner), so the raw angle is ~180°.  In that rotated coordinate
-     *    system, "negative local-Y" is actually DOWNWARD on screen — the
-     *    opposite of what we want.  Fix: always normalise the baseline to run
-     *    left-to-right by swapping the endpoints when needed, so the local
-     *    coordinate system is always consistent: local +Y = downward on screen.
+     * ANCHOR BLEND  Different makeup types need different vertical positions.
+     *   peakLocalY is the minimum (most-upward) of the middle lid points.
+     *   anchorBlend=1 puts the SVG bottom at that peak  → correct for eyelash.
+     *   anchorBlend=0.5 moves it halfway toward the corner baseline → lower,
+     *   correct for eyeliner which should sit on (not above) the lid edge.
+     *   Blink response scales proportionally (50% of peak movement for liner).
      *
-     * 2. SVG TOO LOW / NOT TOUCHING THE EYELID
-     *    The old code anchored the SVG bottom to the midpoint between the two
-     *    eye corners, which sits in the middle of the visible eye opening.  Fix:
-     *    compute the average local-Y of the full upper-eyelid-arc landmarks and
-     *    use that as the bottom anchor — this sits right on the lash line.
+     * WIDTH & OUTER EXTENSION  Eye width is measured from the widest-spread
+     *   upper-lid arc landmarks (not just corners) so narrow/wide eyes are
+     *   handled by facial recognition automatically.  widthScale makes the SVG
+     *   wider than the raw measurement; outerExtend adds extra width only on
+     *   the temple side so lash tips and cat-eye flicks clear the corner.
      *
-     * 3. SVG DOESN'T FOLLOW BLINKS
-     *    Eye-corner landmarks (33, 133, 263, 362) barely move during a blink.
-     *    The upper eyelid arc landmarks (e.g. 159, 386) move downward as the
-     *    lid closes.  By anchoring to the arc average the SVG rides with the lid.
+     * COORDINATE NORMALISATION  The outer→inner angle for the right eye is
+     *   ~180°, which would flip the local-Y axis and put the SVG below the eye.
+     *   We always swap so the baseline runs left-to-right (smaller-X → larger-X),
+     *   keeping local +Y = downward on screen for both eyes.
      *
      * @param {CanvasRenderingContext2D} ctx
-     * @param {Array}    landmarks     - MediaPipe landmark array for the frame.
-     * @param {Image}    svgImg        - Colourised SVG as an HTMLImageElement.
-     * @param {number}   outerIdx      - Landmark index for the outer eye corner.
-     * @param {number}   innerIdx      - Landmark index for the inner eye corner.
-     * @param {number[]} upperLidIdxs  - Full upper-eyelid arc landmark indices.
-     * @param {Object}   t             - Render transform { srcW, srcH, scale, dx, dy }.
+     * @param {Array}    landmarks    - MediaPipe landmark array for the frame.
+     * @param {Image}    svgImg       - Colourised SVG as an HTMLImageElement.
+     * @param {number}   outerIdx     - Landmark index of the outer (temple) corner.
+     * @param {number}   innerIdx     - Landmark index of the inner (nose) corner.
+     * @param {number[]} midLidIdxs   - Middle upper-lid arc indices (no corners).
+     * @param {Object}   cfg          - Config from SVG_OVERLAY_CFG.
+     * @param {Object}   t            - Render transform {srcW,srcH,scale,dx,dy}.
      */
-    drawEyeSvgOverlay: function (ctx, landmarks, svgImg, outerIdx, innerIdx, upperLidIdxs, t) {
+    drawEyeSvgOverlay: function (ctx, landmarks, svgImg, outerIdx, innerIdx, midLidIdxs, cfg, t) {
       if (!svgImg || !svgImg.complete || !svgImg.naturalWidth) return;
 
       const outer = this._lmPx(landmarks[outerIdx], t);
       const inner = this._lmPx(landmarks[innerIdx], t);
 
-      // --- Fix 1: normalise to a left-to-right baseline ---
-      // Whichever corner is further left becomes the start point so the
-      // rotated coordinate system is always: +X rightward, +Y downward.
-      const leftPt  = (outer.x <= inner.x) ? outer : inner;
-      const rightPt = (outer.x <= inner.x) ? inner : outer;
+      // ── 1. Left-to-right normalisation ───────────────────────────────────
+      // After this swap, leftPt.x < rightPt.x always, so local +Y is always
+      // downward on screen.  We also record which side is the "outer" corner
+      // (the temple side, where the flick / outer lashes go).
+      const outerOnLeft = (outer.x <= inner.x); // true for left eye in selfie
+      const leftPt  = outerOnLeft ? outer : inner;
+      const rightPt = outerOnLeft ? inner : outer;
 
-      const eyeWidth = Math.hypot(rightPt.x - leftPt.x, rightPt.y - leftPt.y);
-      if (eyeWidth < 1) return;
-
+      // ── 2. Eye width from widest spread of the lid arc landmarks ─────────
+      // Using the outermost landmark positions (rather than just the corner
+      // indices) captures narrow-set vs wide-set eyes automatically.
       const angle   = Math.atan2(rightPt.y - leftPt.y, rightPt.x - leftPt.x);
-      const centerX = (leftPt.x + rightPt.x) / 2;
-      const centerY = (leftPt.y + rightPt.y) / 2;
+      const cosA    = Math.cos(-angle);
+      const sinA    = Math.sin(-angle);
 
-      // --- Fix 2 & 3: anchor to the upper eyelid arc (blink-aware) ---
-      // Project every upper-lid landmark into the rotated local frame and
-      // take the average local-Y.  This sits right on the lash line and
-      // moves with the lid when the user blinks.
-      const cosA = Math.cos(-angle);
-      const sinA = Math.sin(-angle);
+      // Project all mid-lid points into local (rotated) space and gather
+      // the spread in X (for width) and the minimum Y (for blink tracking).
+      let localXMin =  Infinity, localXMax = -Infinity;
+      let localYMin =  Infinity;                // most-upward = peak of lid arc
 
-      let lidLocalYSum = 0;
-      for (let i = 0; i < upperLidIdxs.length; i++) {
-        const p = this._lmPx(landmarks[upperLidIdxs[i]], t);
-        lidLocalYSum += (p.x - centerX) * sinA + (p.y - centerY) * cosA;
+      const baseX = (leftPt.x + rightPt.x) / 2;
+      const baseY = (leftPt.y + rightPt.y) / 2;
+
+      for (let i = 0; i < midLidIdxs.length; i++) {
+        const p = this._lmPx(landmarks[midLidIdxs[i]], t);
+        const lx = (p.x - baseX) * cosA + (p.y - baseY) * sinA;
+        const ly = -(p.x - baseX) * sinA + (p.y - baseY) * cosA;
+        if (lx < localXMin) localXMin = lx;
+        if (lx > localXMax) localXMax = lx;
+        if (ly < localYMin) localYMin = ly;
       }
-      const lashLineLocalY = lidLocalYSum / upperLidIdxs.length;
 
-      // SVG dimensions: width matches eye width; height preserves aspect ratio.
-      const drawW = eyeWidth;
-      const drawH = (svgImg.naturalHeight / svgImg.naturalWidth) * drawW;
+      // Also include the corner landmarks for the true eye width
+      [leftPt, rightPt].forEach(function (p) {
+        const lx = (p.x - baseX) * cosA + (p.y - baseY) * sinA;
+        if (lx < localXMin) localXMin = lx;
+        if (lx > localXMax) localXMax = lx;
+      });
+
+      const measuredWidth = localXMax - localXMin;
+      if (measuredWidth < 1) return;
+
+      // ── 3. Draw dimensions ────────────────────────────────────────────────
+      const widthScale  = cfg.widthScale  || 1.0;
+      const outerExtend = cfg.outerExtend || 0;
+
+      // Total draw width = measured × scale, plus extra on the outer side
+      const drawW       = measuredWidth * widthScale + measuredWidth * outerExtend;
+      const drawH       = (svgImg.naturalHeight / svgImg.naturalWidth) * drawW;
+
+      // X offset in local space: shift SVG toward the outer corner so the
+      // extra width pads that side.  outerOnLeft → outer = left → shift negative.
+      const outerShift  = (measuredWidth * outerExtend) / 2;
+      const xOff        = outerOnLeft ? -outerShift : outerShift;
+
+      // Local-X centre of the measured arc (may not be exactly 0 after swap)
+      const arcCenterLocalX = (localXMin + localXMax) / 2;
+
+      // ── 4. Blink-aware vertical anchor ───────────────────────────────────
+      // peakLocalY is the most-negative local-Y among mid-lid points.
+      // anchorBlend=1 → SVG bottom sits right at the lid peak (eyelash).
+      // anchorBlend=0.5 → halfway toward local-Y=0 (baseline) → lower (eyeliner).
+      const anchorBlend   = (cfg.anchorBlend !== undefined) ? cfg.anchorBlend : 1.0;
+      const peakLocalY    = localYMin;                    // most-upward, blink-responsive
+      const anchorLocalY  = peakLocalY * anchorBlend;    // scaled toward baseline
+
+      // ── 5. Draw ───────────────────────────────────────────────────────────
+      const cx = baseX + arcCenterLocalX * Math.cos(angle);
+      const cy = baseY + arcCenterLocalX * Math.sin(angle);
 
       ctx.save();
-      ctx.imageSmoothingEnabled = true;
-      ctx.imageSmoothingQuality = 'high';
-      ctx.translate(centerX, centerY);
+      ctx.imageSmoothingEnabled  = true;
+      ctx.imageSmoothingQuality  = 'high';
+      ctx.translate(cx, cy);
       ctx.rotate(angle);
-      // Bottom edge of SVG at lashLineLocalY, extending upward (more-negative
-      // local-Y) by drawH.  local +Y is always downward after the normalisation
-      // above, so this reliably places the SVG above the eye for both sides.
-      ctx.drawImage(svgImg, -drawW / 2, lashLineLocalY - drawH, drawW, drawH);
+      // SVG bottom at anchorLocalY; extends upward (more-negative) by drawH
+      ctx.drawImage(
+        svgImg,
+        -drawW / 2 + xOff,      // left edge: centred then shifted toward outer side
+        anchorLocalY - drawH,    // top edge (above the anchor)
+        drawW,
+        drawH
+      );
       ctx.restore();
     },
 
