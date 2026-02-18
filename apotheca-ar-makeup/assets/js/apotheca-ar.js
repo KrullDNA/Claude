@@ -49,8 +49,20 @@
    * peak:  topmost point of the upper eyelid arc
    */
   const EYE_LANDMARKS = {
-    left:  { outer: 33,  inner: 133, peak: 159 },
-    right: { outer: 263, inner: 362, peak: 386 }
+    left: {
+      outer: 33,
+      inner: 133,
+      peak: 159,
+      // Full upper eyelid arc (outer → inner). These landmarks ride on the
+      // eyelid and move downward when the user blinks, giving live tracking.
+      upperLid: [33, 246, 161, 160, 159, 158, 157, 173, 133]
+    },
+    right: {
+      outer: 263,
+      inner: 362,
+      peak: 386,
+      upperLid: [263, 466, 388, 387, 386, 385, 384, 398, 362]
+    }
   };
 
   // ---------------------------------------------------------------------------
@@ -619,8 +631,8 @@
       if (eyelinerColor) {
         const leftImg  = this._getSvgImage('eyeliner', 'left',  eyelinerColor);
         const rightImg = this._getSvgImage('eyeliner', 'right', eyelinerColor);
-        if (leftImg)  this.drawEyeSvgOverlay(ctx, landmarks, leftImg,  EYE_LANDMARKS.left.outer,  EYE_LANDMARKS.left.inner,  t);
-        if (rightImg) this.drawEyeSvgOverlay(ctx, landmarks, rightImg, EYE_LANDMARKS.right.outer, EYE_LANDMARKS.right.inner, t);
+        if (leftImg)  this.drawEyeSvgOverlay(ctx, landmarks, leftImg,  EYE_LANDMARKS.left.outer,  EYE_LANDMARKS.left.inner,  EYE_LANDMARKS.left.upperLid,  t);
+        if (rightImg) this.drawEyeSvgOverlay(ctx, landmarks, rightImg, EYE_LANDMARKS.right.outer, EYE_LANDMARKS.right.inner, EYE_LANDMARKS.right.upperLid, t);
       }
 
       // Eyelash (SVG overlay — topmost eye layer)
@@ -628,8 +640,8 @@
       if (eyelashColor) {
         const leftImg  = this._getSvgImage('eyelash', 'left',  eyelashColor);
         const rightImg = this._getSvgImage('eyelash', 'right', eyelashColor);
-        if (leftImg)  this.drawEyeSvgOverlay(ctx, landmarks, leftImg,  EYE_LANDMARKS.left.outer,  EYE_LANDMARKS.left.inner,  t);
-        if (rightImg) this.drawEyeSvgOverlay(ctx, landmarks, rightImg, EYE_LANDMARKS.right.outer, EYE_LANDMARKS.right.inner, t);
+        if (leftImg)  this.drawEyeSvgOverlay(ctx, landmarks, leftImg,  EYE_LANDMARKS.left.outer,  EYE_LANDMARKS.left.inner,  EYE_LANDMARKS.left.upperLid,  t);
+        if (rightImg) this.drawEyeSvgOverlay(ctx, landmarks, rightImg, EYE_LANDMARKS.right.outer, EYE_LANDMARKS.right.inner, EYE_LANDMARKS.right.upperLid, t);
       }
 
       // Lips (only draw if user selected a lips region)
@@ -693,42 +705,81 @@
     /**
      * Draw a colourised SVG image aligned to the upper eyelid of one eye.
      *
-     * The SVG is:
-     *   - Stretched to span the full eye width (outer corner → inner corner).
-     *   - Rotated to follow the angle of the eye axis.
-     *   - Drawn ABOVE the eye baseline (bottom edge of the SVG sits at the
-     *     lash line; the SVG extends upward by its natural aspect-ratio height).
+     * Three problems this version solves vs. the previous one:
+     *
+     * 1. RIGHT EYE WAS APPEARING BELOW THE EYE
+     *    For the right eye, landmark 263 (outer) is to the RIGHT of landmark
+     *    362 (inner), so the raw angle is ~180°.  In that rotated coordinate
+     *    system, "negative local-Y" is actually DOWNWARD on screen — the
+     *    opposite of what we want.  Fix: always normalise the baseline to run
+     *    left-to-right by swapping the endpoints when needed, so the local
+     *    coordinate system is always consistent: local +Y = downward on screen.
+     *
+     * 2. SVG TOO LOW / NOT TOUCHING THE EYELID
+     *    The old code anchored the SVG bottom to the midpoint between the two
+     *    eye corners, which sits in the middle of the visible eye opening.  Fix:
+     *    compute the average local-Y of the full upper-eyelid-arc landmarks and
+     *    use that as the bottom anchor — this sits right on the lash line.
+     *
+     * 3. SVG DOESN'T FOLLOW BLINKS
+     *    Eye-corner landmarks (33, 133, 263, 362) barely move during a blink.
+     *    The upper eyelid arc landmarks (e.g. 159, 386) move downward as the
+     *    lid closes.  By anchoring to the arc average the SVG rides with the lid.
      *
      * @param {CanvasRenderingContext2D} ctx
-     * @param {Array}  landmarks  - MediaPipe landmark array for the frame.
-     * @param {Image}  svgImg     - Colourised SVG as an HTMLImageElement.
-     * @param {number} outerIdx   - Landmark index for the outer eye corner.
-     * @param {number} innerIdx   - Landmark index for the inner eye corner.
-     * @param {Object} t          - Render transform { srcW, srcH, scale, dx, dy }.
+     * @param {Array}    landmarks     - MediaPipe landmark array for the frame.
+     * @param {Image}    svgImg        - Colourised SVG as an HTMLImageElement.
+     * @param {number}   outerIdx      - Landmark index for the outer eye corner.
+     * @param {number}   innerIdx      - Landmark index for the inner eye corner.
+     * @param {number[]} upperLidIdxs  - Full upper-eyelid arc landmark indices.
+     * @param {Object}   t             - Render transform { srcW, srcH, scale, dx, dy }.
      */
-    drawEyeSvgOverlay: function (ctx, landmarks, svgImg, outerIdx, innerIdx, t) {
+    drawEyeSvgOverlay: function (ctx, landmarks, svgImg, outerIdx, innerIdx, upperLidIdxs, t) {
       if (!svgImg || !svgImg.complete || !svgImg.naturalWidth) return;
 
       const outer = this._lmPx(landmarks[outerIdx], t);
       const inner = this._lmPx(landmarks[innerIdx], t);
 
-      // Eye width and tilt angle in canvas space
-      const eyeWidth = Math.hypot(inner.x - outer.x, inner.y - outer.y);
+      // --- Fix 1: normalise to a left-to-right baseline ---
+      // Whichever corner is further left becomes the start point so the
+      // rotated coordinate system is always: +X rightward, +Y downward.
+      const leftPt  = (outer.x <= inner.x) ? outer : inner;
+      const rightPt = (outer.x <= inner.x) ? inner : outer;
+
+      const eyeWidth = Math.hypot(rightPt.x - leftPt.x, rightPt.y - leftPt.y);
       if (eyeWidth < 1) return;
 
-      const angle   = Math.atan2(inner.y - outer.y, inner.x - outer.x);
-      const centerX = (outer.x + inner.x) / 2;
-      const centerY = (outer.y + inner.y) / 2;
+      const angle   = Math.atan2(rightPt.y - leftPt.y, rightPt.x - leftPt.x);
+      const centerX = (leftPt.x + rightPt.x) / 2;
+      const centerY = (leftPt.y + rightPt.y) / 2;
 
-      // Maintain the SVG's natural aspect ratio
+      // --- Fix 2 & 3: anchor to the upper eyelid arc (blink-aware) ---
+      // Project every upper-lid landmark into the rotated local frame and
+      // take the average local-Y.  This sits right on the lash line and
+      // moves with the lid when the user blinks.
+      const cosA = Math.cos(-angle);
+      const sinA = Math.sin(-angle);
+
+      let lidLocalYSum = 0;
+      for (let i = 0; i < upperLidIdxs.length; i++) {
+        const p = this._lmPx(landmarks[upperLidIdxs[i]], t);
+        lidLocalYSum += (p.x - centerX) * sinA + (p.y - centerY) * cosA;
+      }
+      const lashLineLocalY = lidLocalYSum / upperLidIdxs.length;
+
+      // SVG dimensions: width matches eye width; height preserves aspect ratio.
       const drawW = eyeWidth;
       const drawH = (svgImg.naturalHeight / svgImg.naturalWidth) * drawW;
 
       ctx.save();
+      ctx.imageSmoothingEnabled = true;
+      ctx.imageSmoothingQuality = 'high';
       ctx.translate(centerX, centerY);
       ctx.rotate(angle);
-      // Bottom edge of SVG at y=0 (lash line), extending upward to y=-drawH
-      ctx.drawImage(svgImg, -drawW / 2, -drawH, drawW, drawH);
+      // Bottom edge of SVG at lashLineLocalY, extending upward (more-negative
+      // local-Y) by drawH.  local +Y is always downward after the normalisation
+      // above, so this reliably places the SVG above the eye for both sides.
+      ctx.drawImage(svgImg, -drawW / 2, lashLineLocalY - drawH, drawW, drawH);
       ctx.restore();
     },
 
