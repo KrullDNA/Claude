@@ -1,0 +1,130 @@
+===============================================
+APOTHECA AR MAKEUP - QUICK START GUIDE
+===============================================
+
+🚀 FASTEST SETUP (5 Minutes)
+===============================================
+
+1. INSTALL THE PLUGIN
+   → WordPress Admin → Plugins → Add New → Upload Plugin
+   → Choose apotheca-ar-makeup.zip
+   → Click Install Now → Activate
+
+2. ADD TO A PRODUCT (WooCommerce)
+   → Edit any makeup product
+   → Look at RIGHT SIDEBAR (where Publish box is)
+   → Find "AR Virtual Try-On" box
+   → Toggle switch to ON
+   → (Optional) Set product-specific colors
+   → Update Product
+
+3. TEST IT!
+   → Visit that product page
+   → Click "Virtual Try-On" button
+   → Allow camera access
+   → Try different lipstick colors!
+
+===============================================
+ALTERNATIVE: ADD TO ANY PAGE
+===============================================
+
+Just add this shortcode anywhere:
+[apotheca_ar_tryon show_button="true"]
+
+===============================================
+FOR ELEMENTOR USERS (FULL STYLING CONTROL!)
+===============================================
+
+1. Edit page with Elementor
+2. Search for "AR Makeup Try-On" widget
+3. Drag onto page
+4. Customize in Style panel:
+   - Button colors & typography
+   - Hover effects
+   - Modal styling
+   - AR video area size
+   - Spacing & borders
+   - Everything!
+
+This gives you complete design control!
+
+===============================================
+FOR ELEMENTOR USERS (SIMPLE BUTTON)
+===============================================
+
+1. Add Button widget
+2. Button text: "Virtual Try-On"
+3. Link: #
+4. Advanced → CSS Classes: apotheca-ar-trigger
+5. Done!
+
+===============================================
+SETTINGS (OPTIONAL)
+===============================================
+
+→ WordPress Admin → AR Makeup (sidebar)
+   • Change default lipstick color
+   • Change default eyeshadow color
+   • Enable/disable mobile
+
+===============================================
+⚠️ IMPORTANT NOTES
+===============================================
+
+✓ Your site MUST use HTTPS (secure)
+✓ Users will need to allow camera access
+✓ Works best in Chrome or Safari
+✓ Good lighting improves tracking
+
+===============================================
+TROUBLESHOOTING
+===============================================
+
+❌ Camera not working?
+   → Make sure you're on HTTPS
+   → Check camera permissions
+   → Try different browser
+
+❌ Button not showing?
+   → Verify custom field is exactly: _apotheca_ar_enabled
+   → Value must be exactly: yes
+   → Clear cache
+
+❌ Colors not changing?
+   → Make sure face is detected (centered in frame)
+   → Check browser console for errors (F12)
+
+===============================================
+WHAT'S INCLUDED (v1.0)
+===============================================
+
+✅ Lipstick (any color)
+✅ Eyeshadow (any color)
+✅ Real-time face tracking
+✅ Color picker + presets
+✅ Beautiful modal interface
+✅ Mobile responsive
+
+===============================================
+COMING SOON
+===============================================
+
+• Blush
+• Eyeliner
+• Highlighter & Contour
+• Screenshot/Share
+• Product-specific shades
+• More makeup effects
+
+===============================================
+NEED HELP?
+===============================================
+
+1. Check README.md for detailed docs
+2. Browser console (F12) shows errors
+3. Check apotheca.com for updates
+
+===============================================
+
+Made with ❤️ for Apotheca
+Version 1.0.0 | February 2026
