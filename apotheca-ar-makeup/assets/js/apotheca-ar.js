@@ -26,8 +26,10 @@
    */
   const REGION_POLYGONS = {
     // Lips
-    lips_outer: [61, 146, 91, 181, 84, 17, 314, 405, 321, 375, 291, 308],
-    lips_inner: [78, 191, 80, 81, 82, 13, 312, 311, 310, 415, 308],
+    lips_outer: [61, 185, 40, 39, 37, 0, 267, 269, 270, 409,
+                 291, 375, 321, 405, 314, 17, 84, 181, 91, 146],
+    lips_inner: [78, 191, 80, 81, 82, 13, 312, 311, 310, 415,
+                 308, 324, 318, 402, 317, 14, 87, 178, 88, 95],
 
     // Brows (approx outlines)
     left_brow: [70, 63, 105, 66, 107, 55, 65, 52, 53, 46],
@@ -37,12 +39,92 @@
     left_eyeshadow: [33, 246, 161, 160, 159, 158, 157, 173, 133, 155, 154, 153, 145, 144, 163, 7],
     right_eyeshadow: [263, 466, 388, 387, 386, 385, 384, 398, 362, 382, 381, 380, 374, 373, 390, 249],
 
-    // Blush — upper cheekbone landmarks used to find the centre of each cheek.
-    // The actual render is a feathered radial-gradient ellipse, not a polygon fill,
-    // so these indices are only used to calculate the centre position.
-    left_blush:  [50, 101, 118, 117, 116, 123, 147],
-    right_blush: [280, 330, 347, 346, 345, 352, 376]
+    // Foundation (full face oval, chin to hairline)
+    face_oval: [10, 338, 297, 332, 284, 251, 389, 356, 454, 323, 361, 288,
+                397, 365, 379, 378, 400, 377, 152, 148, 176, 149, 150, 136,
+                172,  58, 132,  93, 234, 127, 162,  21,  54, 103,  67, 109]
   };
+
+  /**
+   * MediaPipe landmark indices for each eye used when positioning SVG overlays.
+   *
+   * "left"  = left side of the image frame (user's right eye in selfie mode).
+   * "right" = right side of the image frame (user's left eye in selfie mode).
+   *
+   * outer: lateral canthus (outer corner of the eye)
+   * inner: medial canthus (inner corner, near the nose)
+   * peak:  topmost point of the upper eyelid arc
+   */
+  const EYE_LANDMARKS = {
+    left: {
+      outer: 33,
+      inner: 133,
+      peak: 159,
+      // Full upper-eyelid arc (outer → inner) — used for broad measurements.
+      upperLid: [33, 246, 161, 160, 159, 158, 157, 173, 133],
+      // Middle points ONLY (no corners) — these move most during blinks.
+      // Using only these gives ~3× more blink displacement than averaging the
+      // full arc which includes the near-static corner landmarks.
+      midUpperLid: [246, 161, 160, 159, 158, 157, 173]
+    },
+    right: {
+      outer: 263,
+      inner: 362,
+      peak: 386,
+      upperLid: [263, 466, 388, 387, 386, 385, 384, 398, 362],
+      midUpperLid: [466, 388, 387, 386, 385, 384, 398]
+    }
+  };
+
+  /**
+   * Per-region SVG overlay configuration.
+   *
+   * widthScale   – multiply measured eye width by this factor.  Values > 1
+   *               let the SVG extend beyond the corner landmarks.  The
+   *               extension is split: outerExtend fraction goes toward the
+   *               temple (outer corner, where cat-eye lashes/liner go), the
+   *               rest is symmetric.
+   *
+   * anchorBlend  – 0 = SVG bottom sits at the eye-corner baseline (local-Y 0),
+   *               1 = SVG bottom sits at the upper-lid PEAK (most negative
+   *               local-Y, highest on screen).  Negative values push the SVG
+   *               bottom BELOW the baseline (positive local-Y = lower on screen)
+   *               so the SVG extends upward into the eye area — needed for liner.
+   *
+   * outerExtend  – fraction of eye width added exclusively on the OUTER side
+   *               (temple side) beyond the widthScale extension, so the flick /
+   *               outer lashes protrude past the eye corner naturally.
+   */
+  const SVG_OVERLAY_CFG = {
+    eyelash: {
+      widthScale:  1.25,   // 25% wider than outer→inner distance
+      anchorBlend: 0.2,    // SVG bottom just above baseline ≈ lash line
+      outerExtend: 0.04    // small outer extension; too much causes outer lashes to droop
+    },
+    eyeliner: {
+      widthScale:  1.35,   // wider — liner + cat-eye flick needs more room
+      anchorBlend: -1.0,   // SVG bottom below baseline → liner rises into the eye area
+      outerExtend: 0.20    // 20% extra on outer side for the liner flick
+    }
+  };
+
+  // ---------------------------------------------------------------------------
+  // SVG overlay caches
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Raw SVG text cache keyed by URL.
+   * null = fetch in flight / failed; string = ready.
+   */
+  const svgTextCache = {};
+
+  /**
+   * Colourised SVG Image elements, keyed by "<region>_<side>|<colour>".
+   * e.g. "eyelash_left|#cc0033"
+   */
+  const svgImageCache = {};
+
+  // ---------------------------------------------------------------------------
 
   const ApothecaAR = {
     // Per-region selections (face regions from PHP attribute mapping)
@@ -240,6 +322,9 @@
 
       ctx2d = canvasEl.getContext('2d');
 
+      // Pre-fetch SVG files so they are ready when the user selects a swatch
+      this._prefetchSvgOverlays();
+
       // Start MediaPipe
       this.startMediaPipe();
     },
@@ -358,13 +443,7 @@
         camera = new Camera(videoEl, {
           onFrame: async () => {
             if (!isRunning) return;
-            try {
-              await faceMesh.send({ image: videoEl });
-            } catch (e) {
-              // Suppress per-frame errors to avoid flooding the console.
-              // MediaPipe occasionally throws if the video element is not
-              // ready yet; they are transient and safe to ignore.
-            }
+            await faceMesh.send({ image: videoEl });
           },
           width: idealW,
           height: idealH
@@ -421,7 +500,6 @@
         // Fallback: if the browser doesn't show a permission prompt (or the user
         // previously blocked it), CameraUtils may stall and the loading overlay
         // will remain. After a short delay, surface a helpful message + retry.
-        // Use 3000ms so slower devices have time to produce the native prompt.
         setTimeout(() => {
           if (!$('#apotheca-ar-loading').is(':visible')) return;
 
@@ -437,7 +515,7 @@
               '</div>'
             );
           }
-        }, 3000);
+        }, 1500);
 
         // If start returns a promise, catch permission errors and show message.
         if (startPromise && typeof startPromise.then === 'function') {
@@ -451,52 +529,26 @@
               }, 300);
             })
             .catch((err) => {
-              console.error('Apotheca AR camera error:', err);
-
-              let heading = 'Camera error.';
-              let msg = 'Could not start the camera. Please try again.';
-              let showRetry = true;
-
-              const errName = err && err.name;
-
-              if (errName === 'NotAllowedError' || errName === 'PermissionDeniedError') {
-                heading = 'Camera permission denied.';
-                msg = 'Camera access was blocked. Please allow camera access in your browser settings (look for the camera icon in the address bar) and then click Retry.';
-              } else if (errName === 'NotFoundError' || errName === 'DevicesNotFoundError') {
-                heading = 'No camera found.';
-                msg = 'This device does not appear to have a camera, or it is not recognised by your browser. Please connect a camera and click Retry.';
-              } else if (errName === 'NotReadableError' || errName === 'TrackStartError') {
-                heading = 'Camera in use.';
-                msg = 'The camera is already being used by another application. Please close any other app using the camera and click Retry.';
-              } else if (errName === 'OverconstrainedError' || errName === 'ConstraintNotSatisfiedError') {
-                heading = 'Camera not compatible.';
-                msg = 'Your camera could not meet the required settings. Please try a different browser or device, or click Retry.';
-              } else if (errName === 'SecurityError') {
-                heading = 'Camera requires HTTPS.';
-                msg = 'Camera access is blocked on non-secure pages. Please load this page over HTTPS.';
-                showRetry = false;
-              } else if (errName === 'AbortError') {
-                heading = 'Camera start aborted.';
-                msg = 'The camera was interrupted before it could start. Please click Retry.';
-              }
+              console.error(err);
+              const msg = (err && err.name === 'NotAllowedError')
+                ? 'Camera permission was blocked. Please allow camera access in your browser settings and reload.'
+                : 'Camera failed to start. Please allow camera access and reload.';
 
               $('#apotheca-ar-loading').html(
                 '<div style="text-align:center;padding:20px;">' +
-                  '<p style="color:#ff6b6b;font-size:16px;margin-bottom:10px;">' + heading + '</p>' +
-                  '<p style="font-size:12px;line-height:1.6;margin-bottom:' + (showRetry ? '14px' : '0') + ';">' + msg + '</p>' +
-                  (showRetry ? '<button type="button" class="apotheca-ar-retry" style="padding:10px 14px;border-radius:10px;border:1px solid #444;background:#111;color:#fff;cursor:pointer;">Retry</button>' : '') +
+                  '<p style="color:#ff6b6b;font-size:16px;margin-bottom:10px;">Camera access required.</p>' +
+                  '<p style="font-size:12px;">' + msg + '</p>' +
                 '</div>'
               );
             });
         }
       } catch (e) {
-        console.error('Apotheca AR camera start exception:', e);
+        console.error(e);
         $('#apotheca-ar-loading').html(
           '<div style="text-align:center;padding:20px;">' +
             '<p style="color:#ff6b6b;font-size:16px;margin-bottom:10px;">Camera failed to start.</p>' +
-            '<p style="font-size:12px;line-height:1.6;margin-bottom:14px;">An unexpected error occurred. Please make sure camera access is allowed, then click Retry.</p>' +
-            '<button type="button" class="apotheca-ar-retry" style="padding:10px 14px;border-radius:10px;border:1px solid #444;background:#111;color:#fff;cursor:pointer;">Retry</button>' +
-          '</div>'
+            '<p style="font-size:12px;">Please allow camera access and reload.</p>' +
+            '</div>'
         );
       }
     },
@@ -599,36 +651,51 @@
     },
 
     drawOverlays: function (ctx, landmarks, t) {
-      // Lips (only draw if user selected a lips region)
-      const lipsSel = this.selectedRegions.lips || this.selectedRegions.upper_lip || this.selectedRegions.lower_lip;
-      if (lipsSel) {
-        this.drawRegionPolygon(ctx, landmarks, REGION_POLYGONS.lips_outer, lipsSel, 0.35, t);
-        this.drawRegionPolygon(ctx, landmarks, REGION_POLYGONS.lips_inner, lipsSel, 0.22, t);
+      // Foundation (base tint under all other regions)
+      if (this.selectedRegions.foundation) {
+        this.drawFoundation(ctx, landmarks, this.selectedRegions.foundation, t);
       }
 
-      // Brows
-      const browSel = this.selectedRegions.brows || this.selectedRegions.left_brow || this.selectedRegions.right_brow;
+      // Eyebrows — support both 'eyebrows' (current enum) and legacy 'brows'
+      const browSel = this.selectedRegions.eyebrows || this.selectedRegions.brows || this.selectedRegions.left_brow || this.selectedRegions.right_brow;
       if (browSel) {
-        const left = this.selectedRegions.left_brow || this.selectedRegions.brows || browSel;
-        const right = this.selectedRegions.right_brow || this.selectedRegions.brows || browSel;
-        this.drawRegionPolygon(ctx, landmarks, REGION_POLYGONS.left_brow, left, 0.45, t);
+        const left  = this.selectedRegions.left_brow  || this.selectedRegions.eyebrows || this.selectedRegions.brows || browSel;
+        const right = this.selectedRegions.right_brow || this.selectedRegions.eyebrows || this.selectedRegions.brows || browSel;
+        this.drawRegionPolygon(ctx, landmarks, REGION_POLYGONS.left_brow,  left,  0.45, t);
         this.drawRegionPolygon(ctx, landmarks, REGION_POLYGONS.right_brow, right, 0.45, t);
       }
 
-      // Eyeshadow
+      // Eyeshadow (upper eyelid colour — drawn before liner/lash so they sit on top)
       const shadowSel = this.selectedRegions.eyeshadow || this.selectedRegions.left_eyeshadow || this.selectedRegions.right_eyeshadow;
       if (shadowSel) {
-        const left = this.selectedRegions.left_eyeshadow || this.selectedRegions.eyeshadow || shadowSel;
+        const left  = this.selectedRegions.left_eyeshadow  || this.selectedRegions.eyeshadow || shadowSel;
         const right = this.selectedRegions.right_eyeshadow || this.selectedRegions.eyeshadow || shadowSel;
-        this.drawRegionPolygon(ctx, landmarks, REGION_POLYGONS.left_eyeshadow, left, 0.25, t);
+        this.drawRegionPolygon(ctx, landmarks, REGION_POLYGONS.left_eyeshadow,  left,  0.25, t);
         this.drawRegionPolygon(ctx, landmarks, REGION_POLYGONS.right_eyeshadow, right, 0.25, t);
       }
 
-      // Blush — feathered radial-gradient ellipses on the upper cheeks.
-      const blushSel = this.selectedRegions.blush;
-      if (blushSel) {
-        this.drawBlushEllipse(ctx, landmarks, REGION_POLYGONS.left_blush,  blushSel, t);
-        this.drawBlushEllipse(ctx, landmarks, REGION_POLYGONS.right_blush, blushSel, t);
+      // Eyeliner (SVG overlay — sits above eyeshadow, below eyelash)
+      const eyelinerColor = this.selectedRegions.eyeliner;
+      if (eyelinerColor) {
+        const leftImg  = this._getSvgImage('eyeliner', 'left',  eyelinerColor);
+        const rightImg = this._getSvgImage('eyeliner', 'right', eyelinerColor);
+        if (leftImg)  this.drawEyeSvgOverlay(ctx, landmarks, leftImg,  EYE_LANDMARKS.left.outer,  EYE_LANDMARKS.left.inner,  EYE_LANDMARKS.left.midUpperLid,  SVG_OVERLAY_CFG.eyeliner, t);
+        if (rightImg) this.drawEyeSvgOverlay(ctx, landmarks, rightImg, EYE_LANDMARKS.right.outer, EYE_LANDMARKS.right.inner, EYE_LANDMARKS.right.midUpperLid, SVG_OVERLAY_CFG.eyeliner, t);
+      }
+
+      // Eyelash (SVG overlay — topmost eye layer)
+      const eyelashColor = this.selectedRegions.eyelash;
+      if (eyelashColor) {
+        const leftImg  = this._getSvgImage('eyelash', 'left',  eyelashColor);
+        const rightImg = this._getSvgImage('eyelash', 'right', eyelashColor);
+        if (leftImg)  this.drawEyeSvgOverlay(ctx, landmarks, leftImg,  EYE_LANDMARKS.left.outer,  EYE_LANDMARKS.left.inner,  EYE_LANDMARKS.left.midUpperLid,  SVG_OVERLAY_CFG.eyelash, t);
+        if (rightImg) this.drawEyeSvgOverlay(ctx, landmarks, rightImg, EYE_LANDMARKS.right.outer, EYE_LANDMARKS.right.inner, EYE_LANDMARKS.right.midUpperLid, SVG_OVERLAY_CFG.eyelash, t);
+      }
+
+      // Lips (with mouth-hole compositing)
+      const lipsSel = this.selectedRegions.lips || this.selectedRegions.upper_lip || this.selectedRegions.lower_lip;
+      if (lipsSel) {
+        this.drawLips(ctx, landmarks, lipsSel, t);
       }
     },
 
@@ -668,82 +735,453 @@
       ctx.restore();
     },
 
+
     /**
-     * Draw a feathered blush ellipse centred on the average position of the
-     * supplied landmark indices.  Uses a radial gradient so the colour is
-     * richest at the centre of the cheek and fades completely to transparent
-     * at the edges, producing a delicate, highlight-style finish rather than
-     * a harsh flat colour block.
-     *
-     * The canvas is temporarily scaled on the Y-axis so that a circular
-     * gradient becomes elliptical, matching the natural oval shape of blush.
+     * Draw foundation over the full face — chin to hairline.
      */
-    drawBlushEllipse: function (ctx, landmarks, centerIndices, color, t) {
-      if (!centerIndices || centerIndices.length === 0) return;
+    drawFoundation: function (ctx, landmarks, color, t) {
+      const indices = REGION_POLYGONS.face_oval;
+      if (!indices || indices.length < 3) return;
 
-      const srcW  = (t && t.srcW)  || 0;
-      const srcH  = (t && t.srcH)  || 0;
+      const srcW  = (t && t.srcW) || 0;
+      const srcH  = (t && t.srcH) || 0;
       const scale = (t && t.scale) || 1;
-      const dx    = (t && t.dx)    || 0;
-      const dy    = (t && t.dy)    || 0;
+      const dx    = (t && t.dx)   || 0;
+      const dy    = (t && t.dy)   || 0;
 
-      // Average the normalised positions of the centre landmarks.
-      let nx = 0, ny = 0;
-      for (let i = 0; i < centerIndices.length; i++) {
-        const p = landmarks[centerIndices[i]];
-        nx += p.x;
-        ny += p.y;
+      // Convert to canvas pixel coords
+      const pts = indices.map(function (i) {
+        const lm = landmarks[i];
+        return { x: (lm.x * srcW * scale) + dx,
+                 y: (lm.y * srcH * scale) + dy };
+      });
+
+      // Bounding box of the tracked oval
+      let minY = Infinity, maxY = -Infinity;
+      for (let i = 0; i < pts.length; i++) {
+        if (pts[i].y < minY) minY = pts[i].y;
+        if (pts[i].y > maxY) maxY = pts[i].y;
       }
-      nx /= centerIndices.length;
-      ny /= centerIndices.length;
+      const faceH   = maxY - minY;
+      const midY    = (minY + maxY) / 2;
 
-      // Convert to canvas pixel coordinates.
-      const cx = (nx * srcW * scale) + dx;
-      const cy = (ny * srcH * scale) + dy;
+      // How far above the tracked forehead to push the oval.
+      // 0.22 ≈ 22 % of face height — enough to reach the hairline on most faces.
+      // Increase toward 0.30 for taller foreheads; decrease toward 0.12 for smaller.
+      const HAIRLINE_EXTEND = 0.22;
 
-      // Blush size is proportional to the rendered face width so it scales
-      // naturally when the user zooms in or out.
-      const faceWidth = srcW * scale;
-      const rx = faceWidth * 0.11;   // horizontal radius  (~11 % of face width)
-      const ry = rx * 0.62;          // vertical radius – slightly shorter oval
-
-      // Parse the hex colour to individual RGB channels.
-      const hexStr = (color || '#ff9999').replace('#', '');
-      const r = parseInt(hexStr.slice(0, 2), 16) || 0;
-      const g = parseInt(hexStr.slice(2, 4), 16) || 0;
-      const b = parseInt(hexStr.slice(4, 6), 16) || 0;
+      // Extend only the upper half; leave lower half (jaw/chin) untouched
+      const extended = pts.map(function (p) {
+        if (p.y >= midY) return p;                       // lower half — no change
+        const relPos = (midY - p.y) / (midY - minY);    // 0 at midY, 1 at topmost point
+        return { x: p.x, y: p.y - faceH * HAIRLINE_EXTEND * relPos };
+      });
 
       ctx.save();
-
-      // Translate to the cheek centre then squash the Y-axis so that the
-      // circular gradient and arc become a natural-looking oval.
-      ctx.translate(cx, cy);
-      ctx.scale(1, ry / rx);
-
-      // Radial gradient: saturated centre → fully transparent edge.
-      // Alpha values are deliberately low so the effect reads as a soft
-      // highlight rather than an opaque slab of colour.
-      const grad = ctx.createRadialGradient(0, 0, 0, 0, 0, rx);
-      grad.addColorStop(0,    'rgba(' + r + ',' + g + ',' + b + ',0.38)');
-      grad.addColorStop(0.45, 'rgba(' + r + ',' + g + ',' + b + ',0.16)');
-      grad.addColorStop(0.78, 'rgba(' + r + ',' + g + ',' + b + ',0.05)');
-      grad.addColorStop(1,    'rgba(' + r + ',' + g + ',' + b + ',0)');
-
+      ctx.globalAlpha = 0.18;
+      ctx.fillStyle   = color;
       ctx.beginPath();
-      ctx.arc(0, 0, rx, 0, Math.PI * 2);
-      ctx.fillStyle = grad;
+      ctx.moveTo(extended[0].x, extended[0].y);
+      for (let i = 1; i < extended.length; i++) {
+        ctx.lineTo(extended[i].x, extended[i].y);
+      }
+      ctx.closePath();
       ctx.fill();
-
       ctx.restore();
     },
 
     /**
-     * Backwards-compatible API: previously updateMakeup('lipstick', color)
-     * Now simply stores the region colour (drawing is done per-frame in onResults).
+     * Draw lips with mouth-hole compositing.
      */
+    drawLips: function (ctx, landmarks, color, t) {
+      const bufW = canvasEl.width;
+      const bufH = canvasEl.height;
+      const dpr  = window.devicePixelRatio || 1;
+      const cssW = parseInt(canvasEl.style.width,  10) || Math.round(bufW / dpr);
+      const cssH = parseInt(canvasEl.style.height, 10) || Math.round(bufH / dpr);
+
+      // Off-screen canvas with the same physical pixel buffer as the main canvas
+      const oc   = document.createElement('canvas');
+      oc.width   = bufW;
+      oc.height  = bufH;
+      const octx = oc.getContext('2d');
+      // Mirror the DPR transform so landmark coordinates map identically
+      octx.setTransform(dpr, 0, 0, dpr, 0, 0);
+
+      // 1. Fill the outer lip shape
+      octx.fillStyle   = color;
+      octx.globalAlpha = 0.70;
+      this._tracePath(octx, landmarks, REGION_POLYGONS.lips_outer, t);
+      octx.fill();
+
+      // 2. Punch out the inner mouth opening so open-mouth gap is transparent
+      octx.globalCompositeOperation = 'destination-out';
+      octx.globalAlpha = 1.0;
+      this._tracePath(octx, landmarks, REGION_POLYGONS.lips_inner, t);
+      octx.fill();
+
+      // 3. Composite the off-screen result onto the main canvas.
+      //    ctx has a DPR transform so we draw in CSS pixel space (cssW × cssH).
+      ctx.save();
+      ctx.globalAlpha = 1.0;
+      ctx.drawImage(oc, 0, 0, bufW, bufH, 0, 0, cssW, cssH);
+      ctx.restore();
+    },
+
+    // -------------------------------------------------------------------------
+    // SVG overlay helpers
+    // -------------------------------------------------------------------------
+
+    /**
+     * Convert a normalised MediaPipe landmark to canvas pixel coordinates.
+     */
+    _lmPx: function (landmark, t) {
+      return {
+        x: landmark.x * t.srcW * t.scale + t.dx,
+        y: landmark.y * t.srcH * t.scale + t.dy
+      };
+    },
+
+    /**
+     * Draw a colourised SVG image aligned to the upper eyelid of one eye.
+     *
+     * Design decisions
+     * ─────────────────
+     * BLINK TRACKING  Previously we averaged the full upper-lid arc including
+     *   the relatively static corner landmarks (33/133, 263/362), which diluted
+     *   blink movement.  Now we use only the 7 MIDDLE arc points (midUpperLid)
+     *   which move ~3× more per blink.  We take the MINIMUM local-Y of those
+     *   points (the one closest to the screen top = the lid peak), which is the
+     *   most blink-sensitive single value.
+     *
+     * ANCHOR BLEND  Different makeup types need different vertical positions.
+     *   peakLocalY is the minimum (most-upward) of the middle lid points.
+     *   anchorBlend=1 puts the SVG bottom at that peak  → correct for eyelash.
+     *   anchorBlend=0.5 moves it halfway toward the corner baseline → lower,
+     *   correct for eyeliner which should sit on (not above) the lid edge.
+     *   Blink response scales proportionally (50% of peak movement for liner).
+     *
+     * WIDTH & OUTER EXTENSION  Eye width is measured from the widest-spread
+     *   upper-lid arc landmarks (not just corners) so narrow/wide eyes are
+     *   handled by facial recognition automatically.  widthScale makes the SVG
+     *   wider than the raw measurement; outerExtend adds extra width only on
+     *   the temple side so lash tips and cat-eye flicks clear the corner.
+     *
+     * COORDINATE NORMALISATION  The outer→inner angle for the right eye is
+     *   ~180°, which would flip the local-Y axis and put the SVG below the eye.
+     *   We always swap so the baseline runs left-to-right (smaller-X → larger-X),
+     *   keeping local +Y = downward on screen for both eyes.
+     *
+     * @param {CanvasRenderingContext2D} ctx
+     * @param {Array}    landmarks    - MediaPipe landmark array for the frame.
+     * @param {Image}    svgImg       - Colourised SVG as an HTMLImageElement.
+     * @param {number}   outerIdx     - Landmark index of the outer (temple) corner.
+     * @param {number}   innerIdx     - Landmark index of the inner (nose) corner.
+     * @param {number[]} midLidIdxs   - Middle upper-lid arc indices (no corners).
+     * @param {Object}   cfg          - Config from SVG_OVERLAY_CFG.
+     * @param {Object}   t            - Render transform {srcW,srcH,scale,dx,dy}.
+     */
+    drawEyeSvgOverlay: function (ctx, landmarks, svgImg, outerIdx, innerIdx, midLidIdxs, cfg, t) {
+      if (!svgImg || !svgImg.complete || !svgImg.naturalWidth) return;
+
+      const outer = this._lmPx(landmarks[outerIdx], t);
+      const inner = this._lmPx(landmarks[innerIdx], t);
+
+      // ── 1. Left-to-right normalisation ───────────────────────────────────
+      // After this swap, leftPt.x < rightPt.x always, so local +Y is always
+      // downward on screen.  We also record which side is the "outer" corner
+      // (the temple side, where the flick / outer lashes go).
+      const outerOnLeft = (outer.x <= inner.x); // true for left eye in selfie
+      const leftPt  = outerOnLeft ? outer : inner;
+      const rightPt = outerOnLeft ? inner : outer;
+
+      // ── 2. Eye width from widest spread of the lid arc landmarks ─────────
+      // Using the outermost landmark positions (rather than just the corner
+      // indices) captures narrow-set vs wide-set eyes automatically.
+      const angle   = Math.atan2(rightPt.y - leftPt.y, rightPt.x - leftPt.x);
+      const cosA    = Math.cos(-angle);
+      const sinA    = Math.sin(-angle);
+
+      // Project all mid-lid points into local (rotated) space and gather
+      // the spread in X (for width) and the minimum Y (for blink tracking).
+      let localXMin =  Infinity, localXMax = -Infinity;
+      let localYMin =  Infinity;                // most-upward = peak of lid arc
+
+      const baseX = (leftPt.x + rightPt.x) / 2;
+      const baseY = (leftPt.y + rightPt.y) / 2;
+
+      for (let i = 0; i < midLidIdxs.length; i++) {
+        const p = this._lmPx(landmarks[midLidIdxs[i]], t);
+        const lx = (p.x - baseX) * cosA + (p.y - baseY) * sinA;
+        const ly = -(p.x - baseX) * sinA + (p.y - baseY) * cosA;
+        if (lx < localXMin) localXMin = lx;
+        if (lx > localXMax) localXMax = lx;
+        if (ly < localYMin) localYMin = ly;
+      }
+
+      // Also include the corner landmarks for the true eye width
+      [leftPt, rightPt].forEach(function (p) {
+        const lx = (p.x - baseX) * cosA + (p.y - baseY) * sinA;
+        if (lx < localXMin) localXMin = lx;
+        if (lx > localXMax) localXMax = lx;
+      });
+
+      const measuredWidth = localXMax - localXMin;
+      if (measuredWidth < 1) return;
+
+      // ── 3. Draw dimensions ────────────────────────────────────────────────
+      const widthScale  = cfg.widthScale  || 1.0;
+      const outerExtend = cfg.outerExtend || 0;
+
+      // Total draw width = measured × scale, plus extra on the outer side
+      const drawW       = measuredWidth * widthScale + measuredWidth * outerExtend;
+      const drawH       = (svgImg.naturalHeight / svgImg.naturalWidth) * drawW;
+
+      // X offset in local space: shift SVG toward the outer corner so the
+      // extra width pads that side.  outerOnLeft → outer = left → shift negative.
+      const outerShift  = (measuredWidth * outerExtend) / 2;
+      const xOff        = outerOnLeft ? -outerShift : outerShift;
+
+      // Local-X centre of the measured arc (may not be exactly 0 after swap)
+      const arcCenterLocalX = (localXMin + localXMax) / 2;
+
+      // ── 4. Blink-aware vertical anchor ───────────────────────────────────
+      // peakLocalY is the most-negative local-Y among mid-lid points.
+      // anchorBlend=1 → SVG bottom sits right at the lid peak (eyelash).
+      // anchorBlend=0.5 → halfway toward local-Y=0 (baseline) → lower (eyeliner).
+      const anchorBlend   = (cfg.anchorBlend !== undefined) ? cfg.anchorBlend : 1.0;
+      const peakLocalY    = localYMin;                    // most-upward, blink-responsive
+      const anchorLocalY  = peakLocalY * anchorBlend;    // scaled toward baseline
+
+      // ── 5. Draw ───────────────────────────────────────────────────────────
+      const cx = baseX + arcCenterLocalX * Math.cos(angle);
+      const cy = baseY + arcCenterLocalX * Math.sin(angle);
+
+      ctx.save();
+      ctx.imageSmoothingEnabled  = true;
+      ctx.imageSmoothingQuality  = 'high';
+      ctx.translate(cx, cy);
+      ctx.rotate(angle);
+      // SVG bottom at anchorLocalY; extends upward (more-negative) by drawH
+      ctx.drawImage(
+        svgImg,
+        -drawW / 2 + xOff,      // left edge: centred then shifted toward outer side
+        anchorLocalY - drawH,    // top edge (above the anchor)
+        drawW,
+        drawH
+      );
+      ctx.restore();
+    },
+
+    /**
+     * Fetch the raw SVG text for a URL and pass it to callback(text).
+     * Results are cached; in-flight fetches are not duplicated.
+     * Calls callback(null) on error.
+     */
+    _fetchSvgText: function (url, callback) {
+      if (svgTextCache.hasOwnProperty(url)) {
+        // Already fetched (or in-flight with null placeholder)
+        if (svgTextCache[url] !== null) {
+          callback(svgTextCache[url]);
+        }
+        // If null, the fetch failed — don't retry
+        return;
+      }
+
+      // Mark as in-flight so concurrent calls don't re-fetch
+      svgTextCache[url] = null;
+
+      // Queue callbacks in case multiple callers request the same URL before it loads
+      const queue = [callback];
+      svgTextCache['__q__' + url] = queue;
+
+      fetch(url, { credentials: 'same-origin' })
+        .then(function (r) {
+          if (!r.ok) throw new Error('HTTP ' + r.status);
+          return r.text();
+        })
+        .then(function (text) {
+          svgTextCache[url] = text;
+          const q = svgTextCache['__q__' + url] || [];
+          delete svgTextCache['__q__' + url];
+          q.forEach(function (cb) { cb(text); });
+        })
+        .catch(function () {
+          // Leave null so we know it failed; flush any queued callbacks with null
+          const q = svgTextCache['__q__' + url] || [];
+          delete svgTextCache['__q__' + url];
+          q.forEach(function (cb) { cb(null); });
+        });
+    },
+
+    /**
+     * Replace fill/stroke colours in an SVG string with `color`.
+     * Preserves "none", "inherit", "transparent", and url(...) values.
+     */
+    _colorizeSvgText: function (svgText, color) {
+      let result = svgText;
+
+      // Ensure the root <svg> has explicit width/height so browsers rasterise it
+      if (!/<svg[^>]+\bwidth=/.test(result)) {
+        result = result.replace(/<svg\b/, '<svg width="500"');
+      }
+      if (!/<svg[^>]+\bheight=/.test(result)) {
+        result = result.replace(/<svg\b/, '<svg height="200"');
+      }
+
+      // Set fill on the root <svg> element so it cascades to paths that inherit
+      result = result.replace(/(<svg\b[^>]*?)>/, function (match, opening) {
+        // Remove any existing fill on the <svg> tag, then add ours
+        const stripped = opening.replace(/\s+fill="[^"]*"/, '');
+        return stripped + ' fill="' + color + '">';
+      });
+
+      // Replace explicit fill/stroke attribute values (skip none / inherit / transparent / url)
+      const skipAttr = /^(none|inherit|transparent|currentColor|url\()/i;
+      result = result
+        .replace(/\bfill="([^"]*)"/g, function (match, val) {
+          return skipAttr.test(val.trim()) ? match : 'fill="' + color + '"';
+        })
+        .replace(/\bstroke="([^"]*)"/g, function (match, val) {
+          return skipAttr.test(val.trim()) ? match : 'stroke="' + color + '"';
+        });
+
+      // Replace fill/stroke in inline style attributes
+      result = result
+        .replace(/\bfill\s*:\s*([^;}"']+)/g, function (match, val) {
+          return skipAttr.test(val.trim()) ? match : 'fill:' + color;
+        })
+        .replace(/\bstroke\s*:\s*([^;}"']+)/g, function (match, val) {
+          return skipAttr.test(val.trim()) ? match : 'stroke:' + color;
+        });
+
+      return result;
+    },
+
+    /**
+     * Build a colourised HTMLImageElement from an SVG URL and call callback(img).
+     * Calls callback(null) on any error.
+     */
+    _buildColorizedSvgImage: function (url, color, callback) {
+      if (!url || !color) { callback(null); return; }
+      const self = this;
+
+      this._fetchSvgText(url, function (svgText) {
+        if (!svgText) { callback(null); return; }
+
+        const colored = self._colorizeSvgText(svgText, color);
+        let blobUrl;
+        try {
+          const blob = new Blob([colored], { type: 'image/svg+xml;charset=utf-8' });
+          blobUrl = URL.createObjectURL(blob);
+        } catch (e) {
+          callback(null);
+          return;
+        }
+
+        const img = new Image();
+        img.onload = function () {
+          URL.revokeObjectURL(blobUrl);
+          callback(img);
+        };
+        img.onerror = function () {
+          URL.revokeObjectURL(blobUrl);
+          callback(null);
+        };
+        img.src = blobUrl;
+      });
+    },
+
+    /**
+     * Kick off async loading of colourised SVG images for a given region+colour.
+     * Results are stored in svgImageCache keyed by "<region>_<side>|<colour>".
+     * Called whenever the user picks a colour for 'eyelash' or 'eyeliner'.
+     */
+    _prepareSvgOverlays: function (region, color) {
+      const overlays = window.apothecaARSvgOverlays || {};
+      const self = this;
+
+      function build(side, url) {
+        if (!url) return;
+        const storeKey = region + '_' + side + '|' + color;
+
+        // Skip if already cached and ready
+        const cached = svgImageCache[storeKey];
+        if (cached && cached.complete && cached.naturalWidth) return;
+
+        self._buildColorizedSvgImage(url, color, function (img) {
+          svgImageCache[storeKey] = img;
+        });
+      }
+
+      if (region === 'eyelash') {
+        build('left',  overlays.eyelash_left);
+        build('right', overlays.eyelash_right);
+      } else if (region === 'eyeliner') {
+        build('left',  overlays.eyeliner_left);
+        build('right', overlays.eyeliner_right);
+      }
+    },
+
+    /**
+     * Pre-fetch all configured SVG files when the modal opens so that when
+     * the user selects a colour the images appear immediately (no visible lag).
+     * Only the text is fetched here; colourised images are built on swatch click.
+     */
+    _prefetchSvgOverlays: function () {
+      const overlays = window.apothecaARSvgOverlays || {};
+      const self = this;
+      ['eyelash_left', 'eyelash_right', 'eyeliner_left', 'eyeliner_right'].forEach(function (key) {
+        const url = overlays[key];
+        if (url && !svgTextCache.hasOwnProperty(url)) {
+          self._fetchSvgText(url, function () {}); // warm-up only
+        }
+      });
+    },
+
+    /**
+     * Return a cached, ready SVG image for the given region+side+colour, or null.
+     */
+    _getSvgImage: function (region, side, color) {
+      const key = region + '_' + side + '|' + color;
+      const img = svgImageCache[key];
+      return (img && img.complete && img.naturalWidth) ? img : null;
+    },
+
+    // -------------------------------------------------------------------------
+
+    /**
+     * Backwards-compatible API: previously updateMakeup('lipstick', color)
+     * Now stores the region colour and triggers SVG preparation for eye regions.
+     */
+
+    _tracePath: function (ctx, landmarks, indices, t) {
+      if (!indices || indices.length < 3) return;
+
+      const srcW  = (t && t.srcW) || 0;
+      const srcH  = (t && t.srcH) || 0;
+      const scale = (t && t.scale) || 1;
+      const dx    = (t && t.dx)   || 0;
+      const dy    = (t && t.dy)   || 0;
+
+      const first = landmarks[indices[0]];
+      ctx.beginPath();
+      ctx.moveTo((first.x * srcW * scale) + dx, (first.y * srcH * scale) + dy);
+      for (let i = 1; i < indices.length; i++) {
+        const p = landmarks[indices[i]];
+        ctx.lineTo((p.x * srcW * scale) + dx, (p.y * srcH * scale) + dy);
+      }
+      ctx.closePath();
+    },
+
     updateMakeup: function (region, color) {
       if (!region || region === 'none') return;
       this.selectedRegions[region] = color;
+
+      // For SVG-based regions, start building the colourised image immediately
+      if (region === 'eyelash' || region === 'eyeliner') {
+        this._prepareSvgOverlays(region, color);
+      }
     }
   };
 
