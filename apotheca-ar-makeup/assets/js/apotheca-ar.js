@@ -35,7 +35,13 @@
 
     // Eyeshadow (upper eyelid region approximations)
     left_eyeshadow: [33, 246, 161, 160, 159, 158, 157, 173, 133, 155, 154, 153, 145, 144, 163, 7],
-    right_eyeshadow: [263, 466, 388, 387, 386, 385, 384, 398, 362, 382, 381, 380, 374, 373, 390, 249]
+    right_eyeshadow: [263, 466, 388, 387, 386, 385, 384, 398, 362, 382, 381, 380, 374, 373, 390, 249],
+
+    // Blush — upper cheekbone landmarks used to find the centre of each cheek.
+    // The actual render is a feathered radial-gradient ellipse, not a polygon fill,
+    // so these indices are only used to calculate the centre position.
+    left_blush:  [50, 101, 118, 117, 116, 123, 147],
+    right_blush: [280, 330, 347, 346, 345, 352, 376]
   };
 
   const ApothecaAR = {
@@ -617,6 +623,13 @@
         this.drawRegionPolygon(ctx, landmarks, REGION_POLYGONS.left_eyeshadow, left, 0.25, t);
         this.drawRegionPolygon(ctx, landmarks, REGION_POLYGONS.right_eyeshadow, right, 0.25, t);
       }
+
+      // Blush — feathered radial-gradient ellipses on the upper cheeks.
+      const blushSel = this.selectedRegions.blush;
+      if (blushSel) {
+        this.drawBlushEllipse(ctx, landmarks, REGION_POLYGONS.left_blush,  blushSel, t);
+        this.drawBlushEllipse(ctx, landmarks, REGION_POLYGONS.right_blush, blushSel, t);
+      }
     },
 
     /**
@@ -652,6 +665,75 @@
 
       ctx.closePath();
       ctx.fill();
+      ctx.restore();
+    },
+
+    /**
+     * Draw a feathered blush ellipse centred on the average position of the
+     * supplied landmark indices.  Uses a radial gradient so the colour is
+     * richest at the centre of the cheek and fades completely to transparent
+     * at the edges, producing a delicate, highlight-style finish rather than
+     * a harsh flat colour block.
+     *
+     * The canvas is temporarily scaled on the Y-axis so that a circular
+     * gradient becomes elliptical, matching the natural oval shape of blush.
+     */
+    drawBlushEllipse: function (ctx, landmarks, centerIndices, color, t) {
+      if (!centerIndices || centerIndices.length === 0) return;
+
+      const srcW  = (t && t.srcW)  || 0;
+      const srcH  = (t && t.srcH)  || 0;
+      const scale = (t && t.scale) || 1;
+      const dx    = (t && t.dx)    || 0;
+      const dy    = (t && t.dy)    || 0;
+
+      // Average the normalised positions of the centre landmarks.
+      let nx = 0, ny = 0;
+      for (let i = 0; i < centerIndices.length; i++) {
+        const p = landmarks[centerIndices[i]];
+        nx += p.x;
+        ny += p.y;
+      }
+      nx /= centerIndices.length;
+      ny /= centerIndices.length;
+
+      // Convert to canvas pixel coordinates.
+      const cx = (nx * srcW * scale) + dx;
+      const cy = (ny * srcH * scale) + dy;
+
+      // Blush size is proportional to the rendered face width so it scales
+      // naturally when the user zooms in or out.
+      const faceWidth = srcW * scale;
+      const rx = faceWidth * 0.11;   // horizontal radius  (~11 % of face width)
+      const ry = rx * 0.62;          // vertical radius – slightly shorter oval
+
+      // Parse the hex colour to individual RGB channels.
+      const hexStr = (color || '#ff9999').replace('#', '');
+      const r = parseInt(hexStr.slice(0, 2), 16) || 0;
+      const g = parseInt(hexStr.slice(2, 4), 16) || 0;
+      const b = parseInt(hexStr.slice(4, 6), 16) || 0;
+
+      ctx.save();
+
+      // Translate to the cheek centre then squash the Y-axis so that the
+      // circular gradient and arc become a natural-looking oval.
+      ctx.translate(cx, cy);
+      ctx.scale(1, ry / rx);
+
+      // Radial gradient: saturated centre → fully transparent edge.
+      // Alpha values are deliberately low so the effect reads as a soft
+      // highlight rather than an opaque slab of colour.
+      const grad = ctx.createRadialGradient(0, 0, 0, 0, 0, rx);
+      grad.addColorStop(0,    'rgba(' + r + ',' + g + ',' + b + ',0.38)');
+      grad.addColorStop(0.45, 'rgba(' + r + ',' + g + ',' + b + ',0.16)');
+      grad.addColorStop(0.78, 'rgba(' + r + ',' + g + ',' + b + ',0.05)');
+      grad.addColorStop(1,    'rgba(' + r + ',' + g + ',' + b + ',0)');
+
+      ctx.beginPath();
+      ctx.arc(0, 0, rx, 0, Math.PI * 2);
+      ctx.fillStyle = grad;
+      ctx.fill();
+
       ctx.restore();
     },
 
