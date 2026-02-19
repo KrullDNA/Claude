@@ -42,7 +42,13 @@
     // Foundation (full face oval, chin to hairline)
     face_oval: [10, 338, 297, 332, 284, 251, 389, 356, 454, 323, 361, 288,
                 397, 365, 379, 378, 400, 377, 152, 148, 176, 149, 150, 136,
-                172,  58, 132,  93, 234, 127, 162,  21,  54, 103,  67, 109]
+                172,  58, 132,  93, 234, 127, 162,  21,  54, 103,  67, 109],
+
+    // Blush — upper cheek (apple) anchor points used to position the gradient.
+    // "left"  = left side of the image frame (user's right cheek in selfie mode).
+    // "right" = right side of the image frame (user's left cheek in selfie mode).
+    left_cheek_anchors:  [116, 117, 118, 123, 101],
+    right_cheek_anchors: [345, 346, 347, 352, 330]
   };
 
   /**
@@ -656,6 +662,11 @@
         this.drawFoundation(ctx, landmarks, this.selectedRegions.foundation, t);
       }
 
+      // Blush (upper cheeks — rendered above foundation, below eye makeup)
+      if (this.selectedRegions.blush) {
+        this.drawBlush(ctx, landmarks, this.selectedRegions.blush, t);
+      }
+
       // Eyebrows — support both 'eyebrows' (current enum) and legacy 'brows'
       const browSel = this.selectedRegions.eyebrows || this.selectedRegions.brows || this.selectedRegions.left_brow || this.selectedRegions.right_brow;
       if (browSel) {
@@ -788,6 +799,91 @@
       ctx.closePath();
       ctx.fill();
       ctx.restore();
+    },
+
+    /**
+     * Draw soft feathered blush on both upper cheeks.
+     *
+     * Each cheek is rendered as a radial gradient circle whose:
+     *   - centre  = centroid of the cheek anchor landmarks defined in REGION_POLYGONS
+     *   - radius  = ~65 % of the ipsilateral eye width (outer→inner corner distance),
+     *               which scales naturally with face size and distance from camera.
+     *
+     * The gradient fades from semi-opaque at the centre to fully transparent at the
+     * edge, giving the soft, feathered look typical of real blush.
+     */
+    drawBlush: function (ctx, landmarks, color, t) {
+      const srcW  = (t && t.srcW)  || 0;
+      const srcH  = (t && t.srcH)  || 0;
+      const scale = (t && t.scale) || 1;
+      const dx    = (t && t.dx)    || 0;
+      const dy    = (t && t.dy)    || 0;
+
+      // Convert a landmark index to canvas pixel coordinates.
+      const px = function (idx) {
+        const lm = landmarks[idx];
+        return {
+          x: (lm.x * srcW * scale) + dx,
+          y: (lm.y * srcH * scale) + dy
+        };
+      };
+
+      // Parse colour to an rgba() string.  Falls back to a soft rose if the
+      // colour is not a recognisable 6-digit hex value.
+      const col = (color && /^#[0-9a-fA-F]{6}$/.test(color)) ? color : '#e8a0a0';
+      const r   = parseInt(col.slice(1, 3), 16);
+      const g   = parseInt(col.slice(3, 5), 16);
+      const b   = parseInt(col.slice(5, 7), 16);
+      const rgba = function (a) {
+        return 'rgba(' + r + ',' + g + ',' + b + ',' + a + ')';
+      };
+
+      // Draw one feathered blush circle.
+      //   anchorIdxs   – landmark indices whose centroid is the blush centre.
+      //   eyeOuterIdx  – lateral canthus (outer eye corner) for the same side.
+      //   eyeInnerIdx  – medial canthus (inner eye corner) for the same side.
+      const drawCheek = function (anchorIdxs, eyeOuterIdx, eyeInnerIdx) {
+        // Centroid of the cheek anchor landmarks.
+        let cx = 0, cy = 0;
+        for (let i = 0; i < anchorIdxs.length; i++) {
+          const p = px(anchorIdxs[i]);
+          cx += p.x;
+          cy += p.y;
+        }
+        cx /= anchorIdxs.length;
+        cy /= anchorIdxs.length;
+
+        // Radius based on ipsilateral eye width so it scales with face size.
+        const outer = px(eyeOuterIdx);
+        const inner = px(eyeInnerIdx);
+        const eyeW  = Math.sqrt(
+          Math.pow(inner.x - outer.x, 2) + Math.pow(inner.y - outer.y, 2)
+        );
+        const radius = eyeW * 0.85;
+        if (radius < 1) return;
+
+        // Feathered radial gradient: semi-opaque centre → fully transparent edge.
+        const grad = ctx.createRadialGradient(cx, cy, 0, cx, cy, radius);
+        grad.addColorStop(0,    rgba(0.38));
+        grad.addColorStop(0.45, rgba(0.22));
+        grad.addColorStop(0.75, rgba(0.10));
+        grad.addColorStop(1,    rgba(0));
+
+        ctx.save();
+        ctx.beginPath();
+        ctx.arc(cx, cy, radius, 0, Math.PI * 2);
+        ctx.fillStyle = grad;
+        ctx.fill();
+        ctx.restore();
+      };
+
+      // Left cheek (image left / user's right cheek):
+      //   anchors = left_cheek_anchors, eye = landmarks 33 (outer) → 133 (inner)
+      drawCheek(REGION_POLYGONS.left_cheek_anchors,  33, 133);
+
+      // Right cheek (image right / user's left cheek):
+      //   anchors = right_cheek_anchors, eye = landmarks 263 (outer) → 362 (inner)
+      drawCheek(REGION_POLYGONS.right_cheek_anchors, 263, 362);
     },
 
     /**
