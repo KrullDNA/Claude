@@ -80,9 +80,9 @@
    *
    * anchorBlend  – 0 = SVG bottom sits at the eye-corner baseline (local-Y 0),
    *               1 = SVG bottom sits at the upper-lid PEAK (most negative
-   *               local-Y, highest on screen).  Eyelash uses ~0.2 so lash roots
-   *               land just above the corner baseline (≈ the lash line);
-   *               eyeliner uses ~0.1 so the liner sits even closer to the baseline.
+   *               local-Y, highest on screen).  Negative values push the SVG
+   *               bottom BELOW the baseline (positive local-Y = lower on screen)
+   *               so the SVG extends upward into the eye area — needed for liner.
    *
    * outerExtend  – fraction of eye width added exclusively on the OUTER side
    *               (temple side) beyond the widthScale extension, so the flick /
@@ -91,12 +91,12 @@
   const SVG_OVERLAY_CFG = {
     eyelash: {
       widthScale:  1.25,   // 25% wider than outer→inner distance
-      anchorBlend: 0.2,    // SVG bottom ~20% of peak above baseline ≈ lash line
-      outerExtend: 0.12    // extra 12% only on the outer/temple side
+      anchorBlend: 0.2,    // SVG bottom just above baseline ≈ lash line
+      outerExtend: 0.04    // small outer extension; too much causes outer lashes to droop
     },
     eyeliner: {
       widthScale:  1.35,   // wider — liner + cat-eye flick needs more room
-      anchorBlend: 0.1,    // liner sits just above baseline, on the lid edge
+      anchorBlend: -1.0,   // SVG bottom below baseline → liner rises into the eye area
       outerExtend: 0.20    // 20% extra on outer side for the liner flick
     }
   };
