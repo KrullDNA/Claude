@@ -202,6 +202,65 @@ class Apotheca_AR_Elementor_Widget extends \Elementor\Widget_Base {
 
         $this->end_controls_section();
 
+        // --- Eyelash & Eyeliner SVG Overlays ---
+        $this->start_controls_section(
+            'svg_overlays_section',
+            [
+                'label' => 'Eyelash & Eyeliner SVGs',
+                'tab' => \Elementor\Controls_Manager::TAB_CONTENT,
+            ]
+        );
+
+        $this->add_control(
+            'svg_overlays_notice',
+            [
+                'type' => \Elementor\Controls_Manager::RAW_HTML,
+                'raw' => '<p style="font-size:12px;color:#aaa;margin:0 0 12px;">Upload SVG files for eyelash and eyeliner overlays. Each SVG is stretched to span the eye width, rotated to follow the eye angle, and recoloured to match the user\'s swatch selection. Upload a separate file for each eye so you can control the shape independently.<br><br><strong>Note:</strong> WordPress blocks SVG uploads by default — you may need a plugin such as <em>Safe SVG</em> to enable them.</p>',
+            ]
+        );
+
+        $this->add_control(
+            'eyelash_svg_left',
+            [
+                'label' => 'Eyelash SVG — Left Eye',
+                'type' => \Elementor\Controls_Manager::MEDIA,
+                'media_types' => ['svg'],
+                'description' => 'SVG for the eyelash overlay on the left eye (left side of the camera view).',
+            ]
+        );
+
+        $this->add_control(
+            'eyelash_svg_right',
+            [
+                'label' => 'Eyelash SVG — Right Eye',
+                'type' => \Elementor\Controls_Manager::MEDIA,
+                'media_types' => ['svg'],
+                'description' => 'SVG for the eyelash overlay on the right eye (right side of the camera view).',
+            ]
+        );
+
+        $this->add_control(
+            'eyeliner_svg_left',
+            [
+                'label' => 'Eyeliner SVG — Left Eye',
+                'type' => \Elementor\Controls_Manager::MEDIA,
+                'media_types' => ['svg'],
+                'description' => 'SVG for the eyeliner overlay on the left eye. Draw the liner line with any outer flick already included in the SVG.',
+            ]
+        );
+
+        $this->add_control(
+            'eyeliner_svg_right',
+            [
+                'label' => 'Eyeliner SVG — Right Eye',
+                'type' => \Elementor\Controls_Manager::MEDIA,
+                'media_types' => ['svg'],
+                'description' => 'SVG for the eyeliner overlay on the right eye.',
+            ]
+        );
+
+        $this->end_controls_section();
+
         // =============================================
         // STYLE TAB
         // =============================================
@@ -1446,6 +1505,28 @@ class Apotheca_AR_Elementor_Widget extends \Elementor\Widget_Base {
             include APOTHECA_AR_PLUGIN_DIR . 'templates/ar-modal.php';
         }
         ?>
+
+        <?php
+        // Output SVG overlay URLs for the AR JavaScript.
+        // These are read by apotheca-ar.js at runtime to fetch, colorize, and
+        // position the eyelash / eyeliner SVGs over the detected eye landmarks.
+        // If multiple widgets exist on the page, the last one's settings win
+        // (only one modal is ever shown, so this is acceptable).
+        $svg_settings = [
+            'eyelash_left'   => !empty($settings['eyelash_svg_left']['url'])   ? esc_url_raw($settings['eyelash_svg_left']['url'])   : '',
+            'eyelash_right'  => !empty($settings['eyelash_svg_right']['url'])  ? esc_url_raw($settings['eyelash_svg_right']['url'])  : '',
+            'eyeliner_left'  => !empty($settings['eyeliner_svg_left']['url'])  ? esc_url_raw($settings['eyeliner_svg_left']['url'])  : '',
+            'eyeliner_right' => !empty($settings['eyeliner_svg_right']['url']) ? esc_url_raw($settings['eyeliner_svg_right']['url']) : '',
+        ];
+        ?>
+        <script>
+        (function() {
+            var s = <?php echo wp_json_encode($svg_settings); ?>;
+            window.apothecaARSvgOverlays = window.apothecaARSvgOverlays
+                ? Object.assign(window.apothecaARSvgOverlays, s)
+                : s;
+        })();
+        </script>
         <?php
     }
 
