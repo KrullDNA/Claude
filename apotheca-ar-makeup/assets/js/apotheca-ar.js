@@ -821,6 +821,16 @@
      *   Semi-H    = lid-to-brow distance  × 0.85  (covers the full lid height
      *               up toward the crease area).
      *
+     * Corner fills (outer + inner canthus):
+     *   The main ellipse thins out where the eyelid curves down toward each
+     *   canthus.  Two supplemental gradient blobs (anchored at the outer and
+     *   inner eye corners) fill those "wing" regions:
+     *     Outer blob  centre = outer-corner + 10 % beyond toward temple,
+     *                          28 % up toward brow.  Semi-W = 28 % eyeLen.
+     *     Inner blob  centre = inner-corner + 8 % beyond toward nose,
+     *                          24 % up toward brow.  Semi-W = 22 % eyeLen.
+     *   Both blobs are drawn BEFORE the cutout so they share the same erase.
+     *
      * Eye-opening cutout:
      *   An ellipse sized to the actual eye opening is erased with destination-out
      *   using a two-stop radial gradient:
@@ -904,6 +914,58 @@
         offCtx.fillStyle = grad;
         offCtx.fill();
         offCtx.restore();
+
+        // ── Outer-corner fill ───────────────────────────────────────────────
+        // The main ellipse thins out at the canthus where the lid curves down.
+        // A supplemental blob anchored at the outer corner fills the "wing" gap
+        // shown in the user's red-outlined region.
+        // eyeVec = inner − outer, so −eyeVec pushes past the outer corner toward
+        // the temple; outer.y - lidToBrow*0.28 lifts the centre up into the lid.
+        const ocx    = outer.x - eyeVec.x * 0.10;
+        const ocy    = outer.y - lidToBrow * 0.28;
+        const oSemiW = eyeLen  * 0.28;
+        const oSemiH = lidToBrow * 0.46;
+        if (oSemiW > 1 && oSemiH > 1) {
+          const oScaleY = oSemiH / oSemiW;
+          const ocys    = ocy / oScaleY;
+          const oGrad   = offCtx.createRadialGradient(ocx, ocys, 0, ocx, ocys, oSemiW);
+          oGrad.addColorStop(0,    rgba(0.40));
+          oGrad.addColorStop(0.42, rgba(0.22));
+          oGrad.addColorStop(0.75, rgba(0.07));
+          oGrad.addColorStop(1,    rgba(0));
+          offCtx.save();
+          offCtx.scale(1, oScaleY);
+          offCtx.beginPath();
+          offCtx.arc(ocx, ocys, oSemiW, 0, Math.PI * 2);
+          offCtx.fillStyle = oGrad;
+          offCtx.fill();
+          offCtx.restore();
+        }
+
+        // ── Inner-corner fill ───────────────────────────────────────────────
+        // Mirrors the outer fill at the medial canthus.  Inner corners usually
+        // carry slightly less colour so the blob is narrower and softer.
+        // +eyeVec direction pushes past the inner corner toward the nose.
+        const icx    = inner.x + eyeVec.x * 0.08;
+        const icy    = inner.y - lidToBrow * 0.24;
+        const iSemiW = eyeLen  * 0.22;
+        const iSemiH = lidToBrow * 0.38;
+        if (iSemiW > 1 && iSemiH > 1) {
+          const iScaleY = iSemiH / iSemiW;
+          const icys    = icy / iScaleY;
+          const iGrad   = offCtx.createRadialGradient(icx, icys, 0, icx, icys, iSemiW);
+          iGrad.addColorStop(0,    rgba(0.32));
+          iGrad.addColorStop(0.42, rgba(0.17));
+          iGrad.addColorStop(0.75, rgba(0.05));
+          iGrad.addColorStop(1,    rgba(0));
+          offCtx.save();
+          offCtx.scale(1, iScaleY);
+          offCtx.beginPath();
+          offCtx.arc(icx, icys, iSemiW, 0, Math.PI * 2);
+          offCtx.fillStyle = iGrad;
+          offCtx.fill();
+          offCtx.restore();
+        }
       };
 
       // ── Phase 2: feathered erase of the eye opening ────────────────────────
@@ -921,8 +983,11 @@
         const eyeCx = (outer.x + inner.x) * 0.5;
         const eyeCy = (lidPeak.y + lowerLid.y) * 0.5;
 
-        // Semi-axes matching the actual eye opening
-        const cutSemiW = (eyeLen * 0.5) * 0.92;
+        // Semi-axes matching the actual eye opening.
+        // Kept at 80 % of half eye-length so the feather zone (outerR = 1.15×)
+        // ends at ~92 % — well inside the canthus — and never erases the corner
+        // fills added by drawShadow above.
+        const cutSemiW = (eyeLen * 0.5) * 0.80;
         const eyeH     = Math.abs(lidPeak.y - lowerLid.y);
         const cutSemiH = (eyeH  * 0.5) * 1.05;  // slight oversize vertically
         if (cutSemiW < 1 || cutSemiH < 1) return;
