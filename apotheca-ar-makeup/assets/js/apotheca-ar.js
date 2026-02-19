@@ -38,10 +38,11 @@
     right_eyeshadow: [263, 466, 388, 387, 386, 385, 384, 398, 362, 382, 381, 380, 374, 373, 390, 249],
 
     // Blush — upper cheekbone landmarks used to find the centre of each cheek.
-    // The actual render is a feathered radial-gradient ellipse, not a polygon fill,
-    // so these indices are only used to calculate the centre position.
-    left_blush:  [50, 101, 118, 117, 116, 123, 147],
-    right_blush: [280, 330, 347, 346, 345, 352, 376]
+    // Chosen to sit on the mid-cheek "apple" (below the outer eye corner, lateral
+    // to the nose) without drifting toward the ear.  The actual render is a
+    // feathered radial-gradient ellipse; these indices only locate the centre.
+    left_blush:  [36, 47, 50, 101, 205],
+    right_blush: [266, 277, 280, 330, 425]
   };
 
   const ApothecaAR = {
@@ -701,11 +702,14 @@
       const cx = (nx * srcW * scale) + dx;
       const cy = (ny * srcH * scale) + dy;
 
-      // Blush size is proportional to the rendered face width so it scales
-      // naturally when the user zooms in or out.
-      const faceWidth = srcW * scale;
-      const rx = faceWidth * 0.11;   // horizontal radius  (~11 % of face width)
-      const ry = rx * 0.62;          // vertical radius – slightly shorter oval
+      // Size the ellipse relative to the inter-eye span (outer eye corners 33 ↔ 263).
+      // This is a reliable face-scale anchor: it stays correct regardless of camera
+      // resolution, zoom level, or how much of the frame the face fills.
+      const eyeL = landmarks[33];
+      const eyeR = landmarks[263];
+      const eyeSpanPx = Math.abs((eyeR.x - eyeL.x) * srcW * scale);
+      const rx = Math.max(10, eyeSpanPx * 0.20); // 20 % of inter-eye span
+      const ry = rx * 0.58;                       // shorter oval – sits on cheekbone
 
       // Parse the hex colour to individual RGB channels.
       const hexStr = (color || '#ff9999').replace('#', '');
