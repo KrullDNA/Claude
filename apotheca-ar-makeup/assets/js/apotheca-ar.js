@@ -35,9 +35,13 @@
     left_brow: [70, 63, 105, 66, 107, 55, 65, 52, 53, 46],
     right_brow: [336, 296, 334, 293, 300, 276, 283, 282, 295, 285],
 
-    // Eyeshadow (upper eyelid region approximations)
-    left_eyeshadow: [33, 246, 161, 160, 159, 158, 157, 173, 133, 155, 154, 153, 145, 144, 163, 7],
-    right_eyeshadow: [263, 466, 388, 387, 386, 385, 384, 398, 362, 382, 381, 380, 374, 373, 390, 249],
+    // Eyeshadow — reference landmarks for the elliptical gradient.
+    // outer/inner: eye corners used for width and horizontal centre.
+    // lidPeak:     topmost point of the upper eyelid arc.
+    // browRef:     a stable point on the lower edge of the brow used to
+    //              set vertical height (brow.y < lidPeak.y in canvas space).
+    left_eyeshadow:  { outer: 33,  inner: 133, lidPeak: 159, browRef: 66  },
+    right_eyeshadow: { outer: 263, inner: 362, lidPeak: 386, browRef: 295 },
 
     // Foundation (full face oval, chin to hairline)
     face_oval: [10, 338, 297, 332, 284, 251, 389, 356, 454, 323, 361, 288,
@@ -676,13 +680,10 @@
         this.drawRegionPolygon(ctx, landmarks, REGION_POLYGONS.right_brow, right, 0.45, t);
       }
 
-      // Eyeshadow (upper eyelid colour — drawn before liner/lash so they sit on top)
+      // Eyeshadow (feathered ellipse above upper eyelid — drawn before liner/lash)
       const shadowSel = this.selectedRegions.eyeshadow || this.selectedRegions.left_eyeshadow || this.selectedRegions.right_eyeshadow;
       if (shadowSel) {
-        const left  = this.selectedRegions.left_eyeshadow  || this.selectedRegions.eyeshadow || shadowSel;
-        const right = this.selectedRegions.right_eyeshadow || this.selectedRegions.eyeshadow || shadowSel;
-        this.drawRegionPolygon(ctx, landmarks, REGION_POLYGONS.left_eyeshadow,  left,  0.25, t);
-        this.drawRegionPolygon(ctx, landmarks, REGION_POLYGONS.right_eyeshadow, right, 0.25, t);
+        this.drawEyeshadow(ctx, landmarks, shadowSel, t);
       }
 
       // Eyeliner (SVG overlay — sits above eyeshadow, below eyelash)
@@ -799,6 +800,98 @@
       ctx.closePath();
       ctx.fill();
       ctx.restore();
+    },
+
+    /**
+     * Draw feathered elliptical eyeshadow ABOVE each eye on the upper eyelid.
+     *
+     * Layout (per eye):
+     *   Centre X  = horizontal midpoint between outer and inner eye corners,
+     *               shifted 8 % of eye-width toward the outer corner (temples)
+     *               so the shadow naturally tails outward.
+     *   Centre Y  = the upper-lid peak (lidPeak landmark), shifted 20 % of the
+     *               lid-to-brow distance upward — this places the centre just
+     *               above the crease, NOT over the eyeball.
+     *   Semi-W    = half eye-width × 1.25  (25 % wider than the eye opening on
+     *               each side, giving the slight left/right extension requested).
+     *   Semi-H    = lid-to-brow distance  × 0.60  (covers the full lid height).
+     *
+     * The ellipse is drawn with ctx.scale so a circular gradient becomes the
+     * correct ellipse shape. Opacity fades from 0.55 at the centre to 0 at the
+     * edge for a seamless, feathered finish.
+     */
+    drawEyeshadow: function (ctx, landmarks, color, t) {
+      const srcW  = (t && t.srcW)  || 0;
+      const srcH  = (t && t.srcH)  || 0;
+      const scale = (t && t.scale) || 1;
+      const dx    = (t && t.dx)    || 0;
+      const dy    = (t && t.dy)    || 0;
+
+      const px = function (idx) {
+        const lm = landmarks[idx];
+        return { x: (lm.x * srcW * scale) + dx,
+                 y: (lm.y * srcH * scale) + dy };
+      };
+
+      const col = (color && /^#[0-9a-fA-F]{6}$/.test(color)) ? color : '#c0a0c0';
+      const r   = parseInt(col.slice(1, 3), 16);
+      const g   = parseInt(col.slice(3, 5), 16);
+      const b   = parseInt(col.slice(5, 7), 16);
+      const rgba = function (a) {
+        return 'rgba(' + r + ',' + g + ',' + b + ',' + a + ')';
+      };
+
+      const drawLid = function (refs) {
+        const outer   = px(refs.outer);
+        const inner   = px(refs.inner);
+        const lidPeak = px(refs.lidPeak);
+        const brow    = px(refs.browRef);
+
+        // Horizontal geometry
+        const eyeVec  = { x: inner.x - outer.x, y: inner.y - outer.y };
+        const eyeLen  = Math.sqrt(eyeVec.x * eyeVec.x + eyeVec.y * eyeVec.y);
+        if (eyeLen < 1) return;
+
+        // Centre X: midpoint shifted 8 % of eye-width toward the outer corner
+        const midX = (outer.x + inner.x) * 0.5 - eyeVec.x * 0.08;
+
+        // Semi-width: 25 % wider than half eye-length on each side
+        const semiW = (eyeLen * 0.5) * 1.25;
+
+        // Vertical geometry (brow.y < lidPeak.y in canvas coords = above in image)
+        const lidToBrow = lidPeak.y - brow.y;   // positive value
+        if (lidToBrow < 1) return;
+
+        // Centre Y: lid peak shifted 20 % of the lid-to-brow gap upward
+        const cy = lidPeak.y - lidToBrow * 0.20;
+
+        // Semi-height: 60 % of lid-to-brow distance
+        const semiH = lidToBrow * 0.60;
+        if (semiH < 1) return;
+
+        // Draw the ellipse via canvas y-scale trick.
+        // In the scaled coordinate system, y-coords must be divided by scaleY.
+        const scaleY = semiH / semiW;
+        const cys    = cy / scaleY;   // y in scaled space
+
+        const grad = ctx.createRadialGradient(midX, cys, 0, midX, cys, semiW);
+        grad.addColorStop(0,    rgba(0.55));
+        grad.addColorStop(0.35, rgba(0.38));
+        grad.addColorStop(0.65, rgba(0.18));
+        grad.addColorStop(0.85, rgba(0.06));
+        grad.addColorStop(1,    rgba(0));
+
+        ctx.save();
+        ctx.scale(1, scaleY);
+        ctx.beginPath();
+        ctx.arc(midX, cys, semiW, 0, Math.PI * 2);
+        ctx.fillStyle = grad;
+        ctx.fill();
+        ctx.restore();
+      };
+
+      drawLid(REGION_POLYGONS.left_eyeshadow);
+      drawLid(REGION_POLYGONS.right_eyeshadow);
     },
 
     /**
