@@ -892,12 +892,13 @@
         // Semi-W: 60 % wider than the half eye-length covers the corner areas
         // without needing separate corner blobs (which caused visible seams).
         const semiW = (eyeLen * 0.5) * 1.60;
-        // Centre Y: 20 % above the lid peak keeps the shadow on the lid.
+        // Centre Y and Semi-H are sized from browRef (lidToBrow) — the browRef
+        // landmark gives the correct full lid-to-brow distance regardless of
+        // eye-openness.  The browPoly polygon cutout (Phase 2 Pass A) is what
+        // actually masks the brow area; shadow sizing must not be constrained by
+        // the lowest brow-hair point (which sits close to the lid and makes the
+        // shadow too thin).
         const cy    = lidPeak.y - lidToBrow * 0.20;
-        // Semi-H: smaller of 80 % of lid-to-brow OR 55 % of eye-width.
-        // Math.min (not max) ensures the shadow tracks the lid position —
-        // when eyes relax the lid rises and lidToBrow shrinks, so the cap
-        // prevents the shadow from overshooting into the brow.
         const semiH = Math.min(lidToBrow * 0.80, eyeLen * 0.55);
         if (semiH < 1) return;
 
