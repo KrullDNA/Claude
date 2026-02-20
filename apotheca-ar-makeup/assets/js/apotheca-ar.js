@@ -885,6 +885,19 @@
         const lidToBrow = lidPeak.y - brow.y;
         if (lidToBrow < 1) return;
 
+        // Measure the actual brow boundary from the browPoly landmarks rather
+        // than relying solely on the single browRef point.  The MAXIMUM y of the
+        // brow polygon is the lowest point of the brow hairs (closest to the lid)
+        // — this is a robust per-frame brow edge that accounts for any asymmetry
+        // between the two browRef landmarks.
+        let browBottomY = brow.y;   // fallback to browRef
+        refs.browPoly.forEach(function (idx) {
+          const p = px(idx);
+          if (p.y > browBottomY && p.y < lidPeak.y) browBottomY = p.y;
+        });
+        const effLidToBrow = lidPeak.y - browBottomY;
+        if (effLidToBrow < 1) return;
+
         // ── Phase 1: single radial-gradient ellipse ───────────────────────────
         // Centre X: midpoint shifted 13 % outward toward the temple so the
         // gradient is denser over the outer corner area.
@@ -892,13 +905,13 @@
         // Semi-W: 60 % wider than the half eye-length covers the corner areas
         // without needing separate corner blobs (which caused visible seams).
         const semiW = (eyeLen * 0.5) * 1.60;
-        // Centre Y: 20 % above the lid peak keeps the shadow on the lid.
-        const cy    = lidPeak.y - lidToBrow * 0.20;
-        // Semi-H: smaller of 80 % of lid-to-brow OR 55 % of eye-width.
-        // Math.min (not max) ensures the shadow tracks the lid position —
-        // when eyes relax the lid rises and lidToBrow shrinks, so the cap
-        // prevents the shadow from overshooting into the brow.
-        const semiH = Math.min(lidToBrow * 0.80, eyeLen * 0.55);
+        // Centre Y: 20 % above the lid peak, measured from the actual brow bottom.
+        const cy    = lidPeak.y - effLidToBrow * 0.20;
+        // Semi-H: smaller of 80 % of the actual brow-bottom distance OR 55 % of
+        // eye-width.  Using effLidToBrow (derived from browPoly) rather than the
+        // single browRef ensures both eyes use the real brow boundary and the
+        // shadow never overshoots into the brow regardless of eye-openness.
+        const semiH = Math.min(effLidToBrow * 0.80, eyeLen * 0.55);
         if (semiH < 1) return;
 
         const scaleY = semiH / semiW;
@@ -951,7 +964,7 @@
         const browTopY = refs.browPoly.reduce(function (topY, idx) {
           return Math.min(topY, px(idx).y);
         }, brow.y);
-        const aboveFadeH = Math.max(4, lidToBrow * 0.18);
+        const aboveFadeH = Math.max(4, effLidToBrow * 0.18);
         const aboveMask  = offCtx.createLinearGradient(
           0, browTopY + aboveFadeH, 0, browTopY);
         aboveMask.addColorStop(0, 'rgba(0,0,0,0)');
