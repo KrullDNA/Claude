@@ -886,8 +886,9 @@
         if (lidToBrow < 1) return;
 
         // ── Phase 1: single radial-gradient ellipse ───────────────────────────
-        // Centre X: midpoint shifted 8 % outward toward the temple.
-        const midX  = (outer.x + inner.x) * 0.5 - eyeVec.x * 0.08;
+        // Centre X: midpoint shifted 13 % outward toward the temple so the
+        // gradient is denser over the outer corner area.
+        const midX  = (outer.x + inner.x) * 0.5 - eyeVec.x * 0.13;
         // Semi-W: 60 % wider than the half eye-length covers the corner areas
         // without needing separate corner blobs (which caused visible seams).
         const semiW = (eyeLen * 0.5) * 1.60;
@@ -901,11 +902,15 @@
         const scaleY = semiH / semiW;
         const cys    = cy / scaleY;
 
+        // Gradient holds more opacity through the 0.28–0.58 range where the outer
+        // and inner corner areas sit (~60 % of semiW from centre once the vertical
+        // offset of the canthus is accounted for in the scaled ellipse space).
         const grad = offCtx.createRadialGradient(midX, cys, 0, midX, cys, semiW);
         grad.addColorStop(0,    rgba(0.55));
-        grad.addColorStop(0.35, rgba(0.38));
-        grad.addColorStop(0.65, rgba(0.18));
-        grad.addColorStop(0.85, rgba(0.06));
+        grad.addColorStop(0.28, rgba(0.44));
+        grad.addColorStop(0.55, rgba(0.30));
+        grad.addColorStop(0.75, rgba(0.12));
+        grad.addColorStop(0.90, rgba(0.03));
         grad.addColorStop(1,    rgba(0));
 
         offCtx.save();
