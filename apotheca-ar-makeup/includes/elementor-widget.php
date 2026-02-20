@@ -1388,6 +1388,319 @@ class Apotheca_AR_Elementor_Widget extends \Elementor\Widget_Base {
 
         $this->end_controls_section();
 
+        // =============================================
+        // FACE REGION STYLE SECTIONS
+        // =============================================
+
+        // Blend mode options shared by every face region section.
+        // Values map directly to canvas globalCompositeOperation identifiers.
+        $blend_mode_options = [
+            'source-over' => 'Normal',
+            'multiply'    => 'Multiply',
+            'screen'      => 'Screen',
+            'overlay'     => 'Overlay',
+            'darken'      => 'Darken',
+            'lighten'     => 'Lighten',
+            'color-dodge' => 'Color Dodge',
+            'color-burn'  => 'Color Burn',
+            'hard-light'  => 'Hard Light',
+            'soft-light'  => 'Soft Light',
+            'difference'  => 'Difference',
+            'exclusion'   => 'Exclusion',
+            'hue'         => 'Hue',
+            'saturation'  => 'Saturation',
+            'color'       => 'Color',
+            'luminosity'  => 'Luminosity',
+        ];
+
+        // --- Eyebrows Region Style ---
+        $this->start_controls_section(
+            'eyebrows_style_section',
+            [
+                'label' => 'Face Region: Eyebrows',
+                'tab'   => \Elementor\Controls_Manager::TAB_STYLE,
+            ]
+        );
+
+        $this->add_control(
+            'eyebrows_opacity',
+            [
+                'label'      => 'Opacity',
+                'type'       => \Elementor\Controls_Manager::SLIDER,
+                'size_units' => ['%'],
+                'range'      => ['%' => ['min' => 0, 'max' => 100, 'step' => 1]],
+                'default'    => ['unit' => '%', 'size' => 45],
+                'description' => 'Overall opacity of the eyebrow tint (0 = invisible, 100 = fully opaque).',
+            ]
+        );
+
+        $this->add_control(
+            'eyebrows_feather',
+            [
+                'label'      => 'Feather',
+                'type'       => \Elementor\Controls_Manager::SLIDER,
+                'size_units' => ['%'],
+                'range'      => ['%' => ['min' => 0, 'max' => 100, 'step' => 1]],
+                'default'    => ['unit' => '%', 'size' => 0],
+                'description' => 'Softens the edges of the eyebrow region (0 = sharp, 100 = maximum blur).',
+            ]
+        );
+
+        $this->add_control(
+            'eyebrows_blend_mode',
+            [
+                'label'   => 'Blend Mode',
+                'type'    => \Elementor\Controls_Manager::SELECT,
+                'default' => 'source-over',
+                'options' => $blend_mode_options,
+            ]
+        );
+
+        $this->end_controls_section();
+
+        // --- Foundation Region Style ---
+        $this->start_controls_section(
+            'foundation_style_section',
+            [
+                'label' => 'Face Region: Foundation',
+                'tab'   => \Elementor\Controls_Manager::TAB_STYLE,
+            ]
+        );
+
+        $this->add_control(
+            'foundation_opacity',
+            [
+                'label'      => 'Opacity',
+                'type'       => \Elementor\Controls_Manager::SLIDER,
+                'size_units' => ['%'],
+                'range'      => ['%' => ['min' => 0, 'max' => 100, 'step' => 1]],
+                'default'    => ['unit' => '%', 'size' => 18],
+                'description' => 'Overall opacity of the foundation tint (0 = invisible, 100 = fully opaque).',
+            ]
+        );
+
+        $this->add_control(
+            'foundation_feather',
+            [
+                'label'      => 'Feather',
+                'type'       => \Elementor\Controls_Manager::SLIDER,
+                'size_units' => ['%'],
+                'range'      => ['%' => ['min' => 0, 'max' => 100, 'step' => 1]],
+                'default'    => ['unit' => '%', 'size' => 25],
+                'description' => 'Softens the outer edges of the foundation (0 = sharp, 100 = maximum blur). Default 25% produces a natural 3 px edge blur.',
+            ]
+        );
+
+        $this->add_control(
+            'foundation_blend_mode',
+            [
+                'label'   => 'Blend Mode',
+                'type'    => \Elementor\Controls_Manager::SELECT,
+                'default' => 'source-over',
+                'options' => $blend_mode_options,
+            ]
+        );
+
+        $this->end_controls_section();
+
+        // --- Lips Region Style ---
+        $this->start_controls_section(
+            'lips_style_section',
+            [
+                'label' => 'Face Region: Lips',
+                'tab'   => \Elementor\Controls_Manager::TAB_STYLE,
+            ]
+        );
+
+        $this->add_control(
+            'lips_opacity',
+            [
+                'label'      => 'Opacity',
+                'type'       => \Elementor\Controls_Manager::SLIDER,
+                'size_units' => ['%'],
+                'range'      => ['%' => ['min' => 0, 'max' => 100, 'step' => 1]],
+                'default'    => ['unit' => '%', 'size' => 70],
+                'description' => 'Overall opacity of the lip colour (0 = invisible, 100 = fully opaque).',
+            ]
+        );
+
+        $this->add_control(
+            'lips_feather',
+            [
+                'label'      => 'Feather',
+                'type'       => \Elementor\Controls_Manager::SLIDER,
+                'size_units' => ['%'],
+                'range'      => ['%' => ['min' => 0, 'max' => 100, 'step' => 1]],
+                'default'    => ['unit' => '%', 'size' => 0],
+                'description' => 'Softens the lip edges for a blurred/ombre effect (0 = crisp, 100 = maximum blur).',
+            ]
+        );
+
+        $this->add_control(
+            'lips_blend_mode',
+            [
+                'label'   => 'Blend Mode',
+                'type'    => \Elementor\Controls_Manager::SELECT,
+                'default' => 'source-over',
+                'options' => $blend_mode_options,
+            ]
+        );
+
+        $this->end_controls_section();
+
+        // --- Eyeshadow Region Style ---
+        $this->start_controls_section(
+            'eyeshadow_style_section',
+            [
+                'label' => 'Face Region: Eyeshadow',
+                'tab'   => \Elementor\Controls_Manager::TAB_STYLE,
+            ]
+        );
+
+        $this->add_control(
+            'eyeshadow_opacity',
+            [
+                'label'      => 'Opacity',
+                'type'       => \Elementor\Controls_Manager::SLIDER,
+                'size_units' => ['%'],
+                'range'      => ['%' => ['min' => 0, 'max' => 100, 'step' => 1]],
+                'default'    => ['unit' => '%', 'size' => 100],
+                'description' => 'Overall opacity multiplier for the eyeshadow layer (0 = invisible, 100 = full).',
+            ]
+        );
+
+        $this->add_control(
+            'eyeshadow_blend_mode',
+            [
+                'label'   => 'Blend Mode',
+                'type'    => \Elementor\Controls_Manager::SELECT,
+                'default' => 'source-over',
+                'options' => $blend_mode_options,
+            ]
+        );
+
+        $this->end_controls_section();
+
+        // --- Concealer Region Style ---
+        $this->start_controls_section(
+            'concealer_style_section',
+            [
+                'label' => 'Face Region: Concealer',
+                'tab'   => \Elementor\Controls_Manager::TAB_STYLE,
+            ]
+        );
+
+        $this->add_control(
+            'concealer_opacity',
+            [
+                'label'      => 'Opacity',
+                'type'       => \Elementor\Controls_Manager::SLIDER,
+                'size_units' => ['%'],
+                'range'      => ['%' => ['min' => 0, 'max' => 100, 'step' => 1]],
+                'default'    => ['unit' => '%', 'size' => 100],
+                'description' => 'Overall opacity multiplier for the concealer layer (0 = invisible, 100 = full).',
+            ]
+        );
+
+        $this->add_control(
+            'concealer_blend_mode',
+            [
+                'label'   => 'Blend Mode',
+                'type'    => \Elementor\Controls_Manager::SELECT,
+                'default' => 'source-over',
+                'options' => $blend_mode_options,
+            ]
+        );
+
+        $this->end_controls_section();
+
+        // --- Eyeliner Region Style ---
+        $this->start_controls_section(
+            'eyeliner_style_section',
+            [
+                'label' => 'Face Region: Eyeliner',
+                'tab'   => \Elementor\Controls_Manager::TAB_STYLE,
+            ]
+        );
+
+        $this->add_control(
+            'eyeliner_opacity',
+            [
+                'label'      => 'Opacity',
+                'type'       => \Elementor\Controls_Manager::SLIDER,
+                'size_units' => ['%'],
+                'range'      => ['%' => ['min' => 0, 'max' => 100, 'step' => 1]],
+                'default'    => ['unit' => '%', 'size' => 100],
+                'description' => 'Overall opacity of the eyeliner SVG overlay (0 = invisible, 100 = fully opaque).',
+            ]
+        );
+
+        $this->add_control(
+            'eyeliner_blend_mode',
+            [
+                'label'   => 'Blend Mode',
+                'type'    => \Elementor\Controls_Manager::SELECT,
+                'default' => 'source-over',
+                'options' => $blend_mode_options,
+            ]
+        );
+
+        $this->end_controls_section();
+
+        // --- Blush Region Style ---
+        $this->start_controls_section(
+            'blush_style_section',
+            [
+                'label' => 'Face Region: Blush',
+                'tab'   => \Elementor\Controls_Manager::TAB_STYLE,
+            ]
+        );
+
+        $this->add_control(
+            'blush_opacity',
+            [
+                'label'      => 'Opacity',
+                'type'       => \Elementor\Controls_Manager::SLIDER,
+                'size_units' => ['%'],
+                'range'      => ['%' => ['min' => 0, 'max' => 100, 'step' => 1]],
+                'default'    => ['unit' => '%', 'size' => 100],
+                'description' => 'Overall opacity multiplier for the blush layer (0 = invisible, 100 = full).',
+            ]
+        );
+
+        $this->add_control(
+            'blush_blend_mode',
+            [
+                'label'   => 'Blend Mode',
+                'type'    => \Elementor\Controls_Manager::SELECT,
+                'default' => 'source-over',
+                'options' => $blend_mode_options,
+            ]
+        );
+
+        $this->end_controls_section();
+
+        // --- Eyelash Region Style ---
+        $this->start_controls_section(
+            'eyelash_style_section',
+            [
+                'label' => 'Face Region: Eyelash',
+                'tab'   => \Elementor\Controls_Manager::TAB_STYLE,
+            ]
+        );
+
+        $this->add_control(
+            'eyelash_blend_mode',
+            [
+                'label'   => 'Blend Mode',
+                'type'    => \Elementor\Controls_Manager::SELECT,
+                'default' => 'source-over',
+                'options' => $blend_mode_options,
+            ]
+        );
+
+        $this->end_controls_section();
+
         // --- Close Button Style ---
         $this->start_controls_section(
             'close_button_style_section',
@@ -1518,6 +1831,46 @@ class Apotheca_AR_Elementor_Widget extends \Elementor\Widget_Base {
             'eyeliner_left'  => !empty($settings['eyeliner_svg_left']['url'])  ? esc_url_raw($settings['eyeliner_svg_left']['url'])  : '',
             'eyeliner_right' => !empty($settings['eyeliner_svg_right']['url']) ? esc_url_raw($settings['eyeliner_svg_right']['url']) : '',
         ];
+
+        // Face region rendering styles — consumed by the JS draw functions.
+        // Opacity is normalised to 0–1 here; feather is passed as 0–100 (JS
+        // converts to px); blendMode is a valid canvas globalCompositeOperation.
+        $region_styles = [
+            'eyebrows' => [
+                'opacity'   => floatval( isset( $settings['eyebrows_opacity']['size'] )   ? $settings['eyebrows_opacity']['size']   : 45  ) / 100,
+                'feather'   => floatval( isset( $settings['eyebrows_feather']['size'] )   ? $settings['eyebrows_feather']['size']   : 0   ),
+                'blendMode' => !empty( $settings['eyebrows_blend_mode'] )   ? $settings['eyebrows_blend_mode']   : 'source-over',
+            ],
+            'foundation' => [
+                'opacity'   => floatval( isset( $settings['foundation_opacity']['size'] ) ? $settings['foundation_opacity']['size'] : 18  ) / 100,
+                'feather'   => floatval( isset( $settings['foundation_feather']['size'] ) ? $settings['foundation_feather']['size'] : 25  ),
+                'blendMode' => !empty( $settings['foundation_blend_mode'] ) ? $settings['foundation_blend_mode'] : 'source-over',
+            ],
+            'lips' => [
+                'opacity'   => floatval( isset( $settings['lips_opacity']['size'] )       ? $settings['lips_opacity']['size']       : 70  ) / 100,
+                'feather'   => floatval( isset( $settings['lips_feather']['size'] )       ? $settings['lips_feather']['size']       : 0   ),
+                'blendMode' => !empty( $settings['lips_blend_mode'] )       ? $settings['lips_blend_mode']       : 'source-over',
+            ],
+            'eyeshadow' => [
+                'opacity'   => floatval( isset( $settings['eyeshadow_opacity']['size'] )  ? $settings['eyeshadow_opacity']['size']  : 100 ) / 100,
+                'blendMode' => !empty( $settings['eyeshadow_blend_mode'] )  ? $settings['eyeshadow_blend_mode']  : 'source-over',
+            ],
+            'concealer' => [
+                'opacity'   => floatval( isset( $settings['concealer_opacity']['size'] )  ? $settings['concealer_opacity']['size']  : 100 ) / 100,
+                'blendMode' => !empty( $settings['concealer_blend_mode'] )  ? $settings['concealer_blend_mode']  : 'source-over',
+            ],
+            'eyeliner' => [
+                'opacity'   => floatval( isset( $settings['eyeliner_opacity']['size'] )   ? $settings['eyeliner_opacity']['size']   : 100 ) / 100,
+                'blendMode' => !empty( $settings['eyeliner_blend_mode'] )   ? $settings['eyeliner_blend_mode']   : 'source-over',
+            ],
+            'blush' => [
+                'opacity'   => floatval( isset( $settings['blush_opacity']['size'] )      ? $settings['blush_opacity']['size']      : 100 ) / 100,
+                'blendMode' => !empty( $settings['blush_blend_mode'] )      ? $settings['blush_blend_mode']      : 'source-over',
+            ],
+            'eyelash' => [
+                'blendMode' => !empty( $settings['eyelash_blend_mode'] )    ? $settings['eyelash_blend_mode']    : 'source-over',
+            ],
+        ];
         ?>
         <script>
         (function() {
@@ -1525,6 +1878,8 @@ class Apotheca_AR_Elementor_Widget extends \Elementor\Widget_Base {
             window.apothecaARSvgOverlays = window.apothecaARSvgOverlays
                 ? Object.assign(window.apothecaARSvgOverlays, s)
                 : s;
+
+            window.apothecaARRegionStyles = <?php echo wp_json_encode($region_styles); ?>;
         })();
         </script>
         <?php
