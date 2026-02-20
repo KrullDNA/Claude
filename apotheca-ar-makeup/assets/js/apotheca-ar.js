@@ -693,57 +693,69 @@
     drawOverlays: function (ctx, landmarks, t) {
       // Foundation (base tint under all other regions)
       if (this.selectedRegions.foundation) {
-        this.drawFoundation(ctx, landmarks, this.selectedRegions.foundation, t);
+        this.drawFoundation(ctx, landmarks, this.selectedRegions.foundation, t, this._getRegionStyle('foundation'));
       }
 
       // Concealer (under-eye coverage — above foundation, below blush/eyeshadow)
       const concealerSel = this.selectedRegions.concealer;
       if (concealerSel) {
-        this.drawConcealer(ctx, landmarks, concealerSel, t);
+        this.drawConcealer(ctx, landmarks, concealerSel, t, this._getRegionStyle('concealer'));
       }
 
       // Blush (upper cheeks — rendered above foundation, below eye makeup)
       if (this.selectedRegions.blush) {
-        this.drawBlush(ctx, landmarks, this.selectedRegions.blush, t);
+        this.drawBlush(ctx, landmarks, this.selectedRegions.blush, t, this._getRegionStyle('blush'));
       }
 
-      // Eyebrows — support both 'eyebrows' (current enum) and legacy 'brows'
+      // Eyebrows — support both 'eyebrows' (current enum) and legacy 'brows'.
+      // Feather, opacity and blend mode are applied here via a wrapping ctx save
+      // so drawRegionPolygon inherits the correct composite state.
       const browSel = this.selectedRegions.eyebrows || this.selectedRegions.brows || this.selectedRegions.left_brow || this.selectedRegions.right_brow;
       if (browSel) {
         const left  = this.selectedRegions.left_brow  || this.selectedRegions.eyebrows || this.selectedRegions.brows || browSel;
         const right = this.selectedRegions.right_brow || this.selectedRegions.eyebrows || this.selectedRegions.brows || browSel;
-        this.drawRegionPolygon(ctx, landmarks, REGION_POLYGONS.left_brow,  left,  0.45, t);
-        this.drawRegionPolygon(ctx, landmarks, REGION_POLYGONS.right_brow, right, 0.45, t);
+        const bStyle     = this._getRegionStyle('eyebrows');
+        const bAlpha     = (bStyle.opacity !== undefined) ? bStyle.opacity : 0.45;
+        const bBlend     = bStyle.blendMode || 'source-over';
+        const bFeatherPx = bStyle.feather ? (bStyle.feather / 100 * 12) : 0;
+        ctx.save();
+        ctx.globalCompositeOperation = bBlend;
+        if (bFeatherPx > 0) ctx.filter = 'blur(' + bFeatherPx.toFixed(1) + 'px)';
+        this.drawRegionPolygon(ctx, landmarks, REGION_POLYGONS.left_brow,  left,  bAlpha, t);
+        this.drawRegionPolygon(ctx, landmarks, REGION_POLYGONS.right_brow, right, bAlpha, t);
+        ctx.restore();
       }
 
       // Eyeshadow (feathered ellipse above upper eyelid — drawn before liner/lash)
       const shadowSel = this.selectedRegions.eyeshadow || this.selectedRegions.left_eyeshadow || this.selectedRegions.right_eyeshadow;
       if (shadowSel) {
-        this.drawEyeshadow(ctx, landmarks, shadowSel, t);
+        this.drawEyeshadow(ctx, landmarks, shadowSel, t, this._getRegionStyle('eyeshadow'));
       }
 
       // Eyeliner (SVG overlay — sits above eyeshadow, below eyelash)
       const eyelinerColor = this.selectedRegions.eyeliner;
       if (eyelinerColor) {
+        const eyelinerStyle = this._getRegionStyle('eyeliner');
         const leftImg  = this._getSvgImage('eyeliner', 'left',  eyelinerColor);
         const rightImg = this._getSvgImage('eyeliner', 'right', eyelinerColor);
-        if (leftImg)  this.drawEyeSvgOverlay(ctx, landmarks, leftImg,  EYE_LANDMARKS.left.outer,  EYE_LANDMARKS.left.inner,  EYE_LANDMARKS.left.midUpperLid,  SVG_OVERLAY_CFG.eyeliner, t);
-        if (rightImg) this.drawEyeSvgOverlay(ctx, landmarks, rightImg, EYE_LANDMARKS.right.outer, EYE_LANDMARKS.right.inner, EYE_LANDMARKS.right.midUpperLid, SVG_OVERLAY_CFG.eyeliner, t);
+        if (leftImg)  this.drawEyeSvgOverlay(ctx, landmarks, leftImg,  EYE_LANDMARKS.left.outer,  EYE_LANDMARKS.left.inner,  EYE_LANDMARKS.left.midUpperLid,  SVG_OVERLAY_CFG.eyeliner, t, eyelinerStyle);
+        if (rightImg) this.drawEyeSvgOverlay(ctx, landmarks, rightImg, EYE_LANDMARKS.right.outer, EYE_LANDMARKS.right.inner, EYE_LANDMARKS.right.midUpperLid, SVG_OVERLAY_CFG.eyeliner, t, eyelinerStyle);
       }
 
       // Eyelash (SVG overlay — topmost eye layer)
       const eyelashColor = this.selectedRegions.eyelash;
       if (eyelashColor) {
+        const eyelashStyle = this._getRegionStyle('eyelash');
         const leftImg  = this._getSvgImage('eyelash', 'left',  eyelashColor);
         const rightImg = this._getSvgImage('eyelash', 'right', eyelashColor);
-        if (leftImg)  this.drawEyeSvgOverlay(ctx, landmarks, leftImg,  EYE_LANDMARKS.left.outer,  EYE_LANDMARKS.left.inner,  EYE_LANDMARKS.left.midUpperLid,  SVG_OVERLAY_CFG.eyelash, t);
-        if (rightImg) this.drawEyeSvgOverlay(ctx, landmarks, rightImg, EYE_LANDMARKS.right.outer, EYE_LANDMARKS.right.inner, EYE_LANDMARKS.right.midUpperLid, SVG_OVERLAY_CFG.eyelash, t);
+        if (leftImg)  this.drawEyeSvgOverlay(ctx, landmarks, leftImg,  EYE_LANDMARKS.left.outer,  EYE_LANDMARKS.left.inner,  EYE_LANDMARKS.left.midUpperLid,  SVG_OVERLAY_CFG.eyelash, t, eyelashStyle);
+        if (rightImg) this.drawEyeSvgOverlay(ctx, landmarks, rightImg, EYE_LANDMARKS.right.outer, EYE_LANDMARKS.right.inner, EYE_LANDMARKS.right.midUpperLid, SVG_OVERLAY_CFG.eyelash, t, eyelashStyle);
       }
 
       // Lips (with mouth-hole compositing)
       const lipsSel = this.selectedRegions.lips || this.selectedRegions.upper_lip || this.selectedRegions.lower_lip;
       if (lipsSel) {
-        this.drawLips(ctx, landmarks, lipsSel, t);
+        this.drawLips(ctx, landmarks, lipsSel, t, this._getRegionStyle('lips'));
       }
     },
 
@@ -786,8 +798,19 @@
 
     /**
      * Draw foundation over the full face — chin to hairline.
+     *
+     * Rendered on an off-screen canvas so that destination-out cutouts can be
+     * applied before the result is composited onto the main canvas.  A small
+     * blur is applied at composite time to feather the outer oval and all
+     * cutout edges.
+     *
+     * Cutouts (destination-out):
+     *   • Both eye openings  (full upper + lower lid arc)
+     *   • Lips outer polygon (removes the lip-paint zone)
+     *   • Lips inner polygon (removes the open-mouth gap when lips are parted)
+     *   • Left and right nostrils (approximate aperture polygons)
      */
-    drawFoundation: function (ctx, landmarks, color, t) {
+    drawFoundation: function (ctx, landmarks, color, t, style) {
       const indices = REGION_POLYGONS.face_oval;
       if (!indices || indices.length < 3) return;
 
@@ -797,12 +820,15 @@
       const dx    = (t && t.dx)   || 0;
       const dy    = (t && t.dy)   || 0;
 
-      // Convert to canvas pixel coords
-      const pts = indices.map(function (i) {
+      // Helper: landmark index → canvas pixel coords
+      const lmPx = function (i) {
         const lm = landmarks[i];
         return { x: (lm.x * srcW * scale) + dx,
                  y: (lm.y * srcH * scale) + dy };
-      });
+      };
+
+      // Convert face oval to canvas pixel coords
+      const pts = indices.map(lmPx);
 
       // Bounding box of the tracked oval
       let minY = Infinity, maxY = -Infinity;
@@ -810,31 +836,85 @@
         if (pts[i].y < minY) minY = pts[i].y;
         if (pts[i].y > maxY) maxY = pts[i].y;
       }
-      const faceH   = maxY - minY;
-      const midY    = (minY + maxY) / 2;
+      const faceH = maxY - minY;
+      const midY  = (minY + maxY) / 2;
 
       // How far above the tracked forehead to push the oval.
-      // 0.22 ≈ 22 % of face height — enough to reach the hairline on most faces.
-      // Increase toward 0.30 for taller foreheads; decrease toward 0.12 for smaller.
       const HAIRLINE_EXTEND = 0.22;
 
       // Extend only the upper half; leave lower half (jaw/chin) untouched
       const extended = pts.map(function (p) {
-        if (p.y >= midY) return p;                       // lower half — no change
-        const relPos = (midY - p.y) / (midY - minY);    // 0 at midY, 1 at topmost point
+        if (p.y >= midY) return p;
+        const relPos = (midY - p.y) / (midY - minY);
         return { x: p.x, y: p.y - faceH * HAIRLINE_EXTEND * relPos };
       });
 
+      // ── Off-screen canvas (same physical-pixel buffer as main canvas) ─────────
+      const bufW = canvasEl.width;
+      const bufH = canvasEl.height;
+      const dpr  = window.devicePixelRatio || 1;
+      const cssW = parseInt(canvasEl.style.width,  10) || Math.round(bufW / dpr);
+      const cssH = parseInt(canvasEl.style.height, 10) || Math.round(bufH / dpr);
+
+      const oc   = document.createElement('canvas');
+      oc.width   = bufW;
+      oc.height  = bufH;
+      const octx = oc.getContext('2d');
+      // Mirror the DPR transform so landmark coordinates map identically
+      octx.setTransform(dpr, 0, 0, dpr, 0, 0);
+
+      // ── Phase 1: fill the face oval ───────────────────────────────────────────
+      octx.fillStyle   = color;
+      octx.globalAlpha = 1.0;
+      octx.beginPath();
+      octx.moveTo(extended[0].x, extended[0].y);
+      for (let i = 1; i < extended.length; i++) octx.lineTo(extended[i].x, extended[i].y);
+      octx.closePath();
+      octx.fill();
+
+      // ── Phase 2: destination-out cutouts ──────────────────────────────────────
+      octx.globalCompositeOperation = 'destination-out';
+      octx.globalAlpha = 1.0;
+
+      // Helper: fill a closed polygon cutout from an array of landmark indices
+      const cutPoly = function (idxArr) {
+        const cpts = idxArr.map(lmPx);
+        octx.beginPath();
+        octx.moveTo(cpts[0].x, cpts[0].y);
+        for (let i = 1; i < cpts.length; i++) octx.lineTo(cpts[i].x, cpts[i].y);
+        octx.closePath();
+        octx.fill();
+      };
+
+      // Left eye — full opening: upper lid arc + lower lid arc
+      cutPoly([33, 246, 161, 160, 159, 158, 157, 173,
+               133, 155, 154, 153, 145, 144, 163, 7]);
+      // Right eye — full opening
+      cutPoly([263, 466, 388, 387, 386, 385, 384, 398,
+               362, 382, 381, 380, 374, 373, 390, 249]);
+
+      // Lips — outer boundary removes the lip-paint zone; inner boundary
+      // removes the mouth opening when the lips are parted
+      cutPoly(REGION_POLYGONS.lips_outer);
+      cutPoly(REGION_POLYGONS.lips_inner);
+
+      // Nostrils — approximate outline of each nostril aperture.
+      // Indices chosen from MediaPipe FaceMesh alar / columella landmarks.
+      cutPoly([49, 64, 98, 97, 2, 129]);    // left nostril
+      cutPoly([279, 294, 327, 326, 2, 358]); // right nostril
+
+      // ── Phase 3: composite onto main canvas with edge feathering ─────────────
+      // Opacity, feather (blur) and blend mode come from Elementor style controls.
+      // Feather 0–100 % maps to 0–12 px of blur; default 25 % ≈ 3 px (original).
+      const foundStyle    = style || {};
+      const foundOpacity  = (foundStyle.opacity  !== undefined) ? foundStyle.opacity  : 0.18;
+      const foundFeatherPx = (foundStyle.feather !== undefined) ? (foundStyle.feather / 100 * 12) : 3;
+      const foundBlend    = foundStyle.blendMode || 'source-over';
       ctx.save();
-      ctx.globalAlpha = 0.18;
-      ctx.fillStyle   = color;
-      ctx.beginPath();
-      ctx.moveTo(extended[0].x, extended[0].y);
-      for (let i = 1; i < extended.length; i++) {
-        ctx.lineTo(extended[i].x, extended[i].y);
-      }
-      ctx.closePath();
-      ctx.fill();
+      ctx.filter                   = 'blur(' + foundFeatherPx.toFixed(1) + 'px)';
+      ctx.globalAlpha              = foundOpacity;
+      ctx.globalCompositeOperation = foundBlend;
+      ctx.drawImage(oc, 0, 0, bufW, bufH, 0, 0, cssW, cssH);
       ctx.restore();
     },
 
@@ -862,7 +942,7 @@
      *   Gradient destination-out: fully opaque inside r = 55 % of cutSemiW,
      *   fading to transparent at r = 110 %, giving a feathered lash-line edge.
      */
-    drawEyeshadow: function (ctx, landmarks, color, t) {
+    drawEyeshadow: function (ctx, landmarks, color, t, style) {
       const srcW  = (t && t.srcW)  || 0;
       const srcH  = (t && t.srcH)  || 0;
       const scale = (t && t.scale) || 1;
@@ -1021,7 +1101,15 @@
       drawEye(REGION_POLYGONS.left_eyeshadow);
       drawEye(REGION_POLYGONS.right_eyeshadow);
 
+      // Composite with Elementor-controlled opacity and blend mode.
+      const shadowStyle   = style || {};
+      const shadowOpacity = (shadowStyle.opacity  !== undefined) ? shadowStyle.opacity  : 1.0;
+      const shadowBlend   = shadowStyle.blendMode || 'source-over';
+      ctx.save();
+      ctx.globalAlpha              = shadowOpacity;
+      ctx.globalCompositeOperation = shadowBlend;
       ctx.drawImage(off, 0, 0);
+      ctx.restore();
     },
 
     /**
@@ -1038,7 +1126,7 @@
      *   - no brow cutout pass needed
      *   - eye-opening cutout centre is biased 70/30 toward the lower lid
      */
-    drawConcealer: function (ctx, landmarks, color, t) {
+    drawConcealer: function (ctx, landmarks, color, t, style) {
       const srcW  = (t && t.srcW)  || 0;
       const srcH  = (t && t.srcH)  || 0;
       const scale = (t && t.scale) || 1;
@@ -1087,10 +1175,13 @@
         const midX  = (outer.x + inner.x) * 0.5 - eyeVec.x * 0.13;
         // Semi-W: same 60 % extension as eyeshadow covers corner areas cleanly.
         const semiW = (eyeLen * 0.5) * 1.60;
-        // Centre Y: 20 % below the lower lid (mirrors eyeshadow above upper lid).
-        const cy    = lowerLid.y + lidToCheek * 0.20;
-        // Semi-H: smaller of 80 % of lid-to-cheek distance OR 55 % of eye width.
-        const semiH = Math.min(lidToCheek * 0.80, eyeLen * 0.55);
+        // Centre Y: 55 % below the lower lid — pushed down for deeper coverage.
+        const cy    = lowerLid.y + lidToCheek * 0.55;
+        // Semi-H: 150 % of lid-to-cheek distance (OR 110 % of eye width) so
+        // the bottom of the ellipse reaches well down into the cheek area.
+        // The top edge is unaffected — the eye-opening cutout (Phase 2) always
+        // clips the concealer back to the lower lash line.
+        const semiH = Math.min(lidToCheek * 1.50, eyeLen * 1.10);
         if (semiH < 1) return;
 
         const scaleY = semiH / semiW;
@@ -1148,7 +1239,15 @@
       drawEye(REGION_POLYGONS.left_concealer);
       drawEye(REGION_POLYGONS.right_concealer);
 
+      // Composite with Elementor-controlled opacity and blend mode.
+      const concealStyle   = style || {};
+      const concealOpacity = (concealStyle.opacity  !== undefined) ? concealStyle.opacity  : 1.0;
+      const concealBlend   = concealStyle.blendMode || 'source-over';
+      ctx.save();
+      ctx.globalAlpha              = concealOpacity;
+      ctx.globalCompositeOperation = concealBlend;
       ctx.drawImage(off, 0, 0);
+      ctx.restore();
     },
 
     /**
@@ -1162,7 +1261,7 @@
      * The gradient fades from semi-opaque at the centre to fully transparent at the
      * edge, giving the soft, feathered look typical of real blush.
      */
-    drawBlush: function (ctx, landmarks, color, t) {
+    drawBlush: function (ctx, landmarks, color, t, style) {
       const srcW  = (t && t.srcW)  || 0;
       const srcH  = (t && t.srcH)  || 0;
       const scale = (t && t.scale) || 1;
@@ -1227,6 +1326,14 @@
         ctx.restore();
       };
 
+      // Apply Elementor-controlled opacity and blend mode around both cheeks.
+      const blushStyle   = style || {};
+      const blushOpacity = (blushStyle.opacity  !== undefined) ? blushStyle.opacity  : 1.0;
+      const blushBlend   = blushStyle.blendMode || 'source-over';
+      ctx.save();
+      ctx.globalAlpha              = blushOpacity;
+      ctx.globalCompositeOperation = blushBlend;
+
       // Left cheek (image left / user's right cheek):
       //   anchors = left_cheek_anchors, eye = landmarks 33 (outer) → 133 (inner)
       drawCheek(REGION_POLYGONS.left_cheek_anchors,  33, 133);
@@ -1234,17 +1341,25 @@
       // Right cheek (image right / user's left cheek):
       //   anchors = right_cheek_anchors, eye = landmarks 263 (outer) → 362 (inner)
       drawCheek(REGION_POLYGONS.right_cheek_anchors, 263, 362);
+
+      ctx.restore();
     },
 
     /**
      * Draw lips with mouth-hole compositing.
      */
-    drawLips: function (ctx, landmarks, color, t) {
+    drawLips: function (ctx, landmarks, color, t, style) {
       const bufW = canvasEl.width;
       const bufH = canvasEl.height;
       const dpr  = window.devicePixelRatio || 1;
       const cssW = parseInt(canvasEl.style.width,  10) || Math.round(bufW / dpr);
       const cssH = parseInt(canvasEl.style.height, 10) || Math.round(bufH / dpr);
+
+      // Resolve Elementor style controls (opacity, feather, blend mode).
+      const lipsStyle    = style || {};
+      const lipsOpacity  = (lipsStyle.opacity  !== undefined) ? lipsStyle.opacity  : 0.70;
+      const lipsFeatherPx = (lipsStyle.feather !== undefined) ? (lipsStyle.feather / 100 * 12) : 0;
+      const lipsBlend    = lipsStyle.blendMode || 'source-over';
 
       // Off-screen canvas with the same physical pixel buffer as the main canvas
       const oc   = document.createElement('canvas');
@@ -1254,9 +1369,9 @@
       // Mirror the DPR transform so landmark coordinates map identically
       octx.setTransform(dpr, 0, 0, dpr, 0, 0);
 
-      // 1. Fill the outer lip shape
+      // 1. Fill the outer lip shape using the Elementor-controlled opacity.
       octx.fillStyle   = color;
-      octx.globalAlpha = 0.70;
+      octx.globalAlpha = lipsOpacity;
       this._tracePath(octx, landmarks, REGION_POLYGONS.lips_outer, t);
       octx.fill();
 
@@ -1267,9 +1382,11 @@
       octx.fill();
 
       // 3. Composite the off-screen result onto the main canvas.
+      //    Apply feather blur and blend mode from Elementor controls.
       //    ctx has a DPR transform so we draw in CSS pixel space (cssW × cssH).
       ctx.save();
-      ctx.globalAlpha = 1.0;
+      ctx.globalCompositeOperation = lipsBlend;
+      if (lipsFeatherPx > 0) ctx.filter = 'blur(' + lipsFeatherPx.toFixed(1) + 'px)';
       ctx.drawImage(oc, 0, 0, bufW, bufH, 0, 0, cssW, cssH);
       ctx.restore();
     },
@@ -1327,7 +1444,7 @@
      * @param {Object}   cfg          - Config from SVG_OVERLAY_CFG.
      * @param {Object}   t            - Render transform {srcW,srcH,scale,dx,dy}.
      */
-    drawEyeSvgOverlay: function (ctx, landmarks, svgImg, outerIdx, innerIdx, midLidIdxs, cfg, t) {
+    drawEyeSvgOverlay: function (ctx, landmarks, svgImg, outerIdx, innerIdx, midLidIdxs, cfg, t, style) {
       if (!svgImg || !svgImg.complete || !svgImg.naturalWidth) return;
 
       const outer = this._lmPx(landmarks[outerIdx], t);
@@ -1403,9 +1520,16 @@
       const cx = baseX + arcCenterLocalX * Math.cos(angle);
       const cy = baseY + arcCenterLocalX * Math.sin(angle);
 
+      // Apply Elementor-controlled opacity and blend mode for this SVG region.
+      const svgStyle   = style || {};
+      const svgOpacity = (svgStyle.opacity  !== undefined) ? svgStyle.opacity  : 1.0;
+      const svgBlend   = svgStyle.blendMode || 'source-over';
+
       ctx.save();
-      ctx.imageSmoothingEnabled  = true;
-      ctx.imageSmoothingQuality  = 'high';
+      ctx.imageSmoothingEnabled    = true;
+      ctx.imageSmoothingQuality    = 'high';
+      ctx.globalAlpha              = svgOpacity;
+      ctx.globalCompositeOperation = svgBlend;
       ctx.translate(cx, cy);
       ctx.rotate(angle);
       // SVG bottom at anchorLocalY; extends upward (more-negative) by drawH
@@ -1618,6 +1742,18 @@
         ctx.lineTo((p.x * srcW * scale) + dx, (p.y * srcH * scale) + dy);
       }
       ctx.closePath();
+    },
+
+    /**
+     * Return the Elementor-configured rendering style for a face region.
+     * Falls back to safe defaults if the widget has not yet output the variable.
+     *
+     * @param  {string} region  e.g. 'eyebrows', 'lips', 'eyelash', …
+     * @return {Object}         { opacity?, feather?, blendMode }
+     */
+    _getRegionStyle: function (region) {
+      var styles = window.apothecaARRegionStyles || {};
+      return styles[region] || {};
     },
 
     updateMakeup: function (region, color) {
