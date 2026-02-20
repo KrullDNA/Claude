@@ -786,6 +786,17 @@
 
     /**
      * Draw foundation over the full face — chin to hairline.
+     *
+     * Rendered on an off-screen canvas so that destination-out cutouts can be
+     * applied before the result is composited onto the main canvas.  A small
+     * blur is applied at composite time to feather the outer oval and all
+     * cutout edges.
+     *
+     * Cutouts (destination-out):
+     *   • Both eye openings  (full upper + lower lid arc)
+     *   • Lips outer polygon (removes the lip-paint zone)
+     *   • Lips inner polygon (removes the open-mouth gap when lips are parted)
+     *   • Left and right nostrils (approximate aperture polygons)
      */
     drawFoundation: function (ctx, landmarks, color, t) {
       const indices = REGION_POLYGONS.face_oval;
@@ -797,12 +808,15 @@
       const dx    = (t && t.dx)   || 0;
       const dy    = (t && t.dy)   || 0;
 
-      // Convert to canvas pixel coords
-      const pts = indices.map(function (i) {
+      // Helper: landmark index → canvas pixel coords
+      const lmPx = function (i) {
         const lm = landmarks[i];
         return { x: (lm.x * srcW * scale) + dx,
                  y: (lm.y * srcH * scale) + dy };
-      });
+      };
+
+      // Convert face oval to canvas pixel coords
+      const pts = indices.map(lmPx);
 
       // Bounding box of the tracked oval
       let minY = Infinity, maxY = -Infinity;
@@ -810,31 +824,79 @@
         if (pts[i].y < minY) minY = pts[i].y;
         if (pts[i].y > maxY) maxY = pts[i].y;
       }
-      const faceH   = maxY - minY;
-      const midY    = (minY + maxY) / 2;
+      const faceH = maxY - minY;
+      const midY  = (minY + maxY) / 2;
 
       // How far above the tracked forehead to push the oval.
-      // 0.22 ≈ 22 % of face height — enough to reach the hairline on most faces.
-      // Increase toward 0.30 for taller foreheads; decrease toward 0.12 for smaller.
       const HAIRLINE_EXTEND = 0.22;
 
       // Extend only the upper half; leave lower half (jaw/chin) untouched
       const extended = pts.map(function (p) {
-        if (p.y >= midY) return p;                       // lower half — no change
-        const relPos = (midY - p.y) / (midY - minY);    // 0 at midY, 1 at topmost point
+        if (p.y >= midY) return p;
+        const relPos = (midY - p.y) / (midY - minY);
         return { x: p.x, y: p.y - faceH * HAIRLINE_EXTEND * relPos };
       });
 
+      // ── Off-screen canvas (same physical-pixel buffer as main canvas) ─────────
+      const bufW = canvasEl.width;
+      const bufH = canvasEl.height;
+      const dpr  = window.devicePixelRatio || 1;
+      const cssW = parseInt(canvasEl.style.width,  10) || Math.round(bufW / dpr);
+      const cssH = parseInt(canvasEl.style.height, 10) || Math.round(bufH / dpr);
+
+      const oc   = document.createElement('canvas');
+      oc.width   = bufW;
+      oc.height  = bufH;
+      const octx = oc.getContext('2d');
+      // Mirror the DPR transform so landmark coordinates map identically
+      octx.setTransform(dpr, 0, 0, dpr, 0, 0);
+
+      // ── Phase 1: fill the face oval ───────────────────────────────────────────
+      octx.fillStyle   = color;
+      octx.globalAlpha = 1.0;
+      octx.beginPath();
+      octx.moveTo(extended[0].x, extended[0].y);
+      for (let i = 1; i < extended.length; i++) octx.lineTo(extended[i].x, extended[i].y);
+      octx.closePath();
+      octx.fill();
+
+      // ── Phase 2: destination-out cutouts ──────────────────────────────────────
+      octx.globalCompositeOperation = 'destination-out';
+      octx.globalAlpha = 1.0;
+
+      // Helper: fill a closed polygon cutout from an array of landmark indices
+      const cutPoly = function (idxArr) {
+        const cpts = idxArr.map(lmPx);
+        octx.beginPath();
+        octx.moveTo(cpts[0].x, cpts[0].y);
+        for (let i = 1; i < cpts.length; i++) octx.lineTo(cpts[i].x, cpts[i].y);
+        octx.closePath();
+        octx.fill();
+      };
+
+      // Left eye — full opening: upper lid arc + lower lid arc
+      cutPoly([33, 246, 161, 160, 159, 158, 157, 173,
+               133, 155, 154, 153, 145, 144, 163, 7]);
+      // Right eye — full opening
+      cutPoly([263, 466, 388, 387, 386, 385, 384, 398,
+               362, 382, 381, 380, 374, 373, 390, 249]);
+
+      // Lips — outer boundary removes the lip-paint zone; inner boundary
+      // removes the mouth opening when the lips are parted
+      cutPoly(REGION_POLYGONS.lips_outer);
+      cutPoly(REGION_POLYGONS.lips_inner);
+
+      // Nostrils — approximate outline of each nostril aperture.
+      // Indices chosen from MediaPipe FaceMesh alar / columella landmarks.
+      cutPoly([49, 64, 98, 97, 2, 129]);    // left nostril
+      cutPoly([279, 294, 327, 326, 2, 358]); // right nostril
+
+      // ── Phase 3: composite onto main canvas with edge feathering ─────────────
+      // A small blur softens both the outer oval boundary and the cutout edges.
       ctx.save();
+      ctx.filter      = 'blur(3px)';
       ctx.globalAlpha = 0.18;
-      ctx.fillStyle   = color;
-      ctx.beginPath();
-      ctx.moveTo(extended[0].x, extended[0].y);
-      for (let i = 1; i < extended.length; i++) {
-        ctx.lineTo(extended[i].x, extended[i].y);
-      }
-      ctx.closePath();
-      ctx.fill();
+      ctx.drawImage(oc, 0, 0, bufW, bufH, 0, 0, cssW, cssH);
       ctx.restore();
     },
 
