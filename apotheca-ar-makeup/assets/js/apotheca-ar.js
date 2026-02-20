@@ -1087,14 +1087,13 @@
         const midX  = (outer.x + inner.x) * 0.5 - eyeVec.x * 0.13;
         // Semi-W: same 60 % extension as eyeshadow covers corner areas cleanly.
         const semiW = (eyeLen * 0.5) * 1.60;
-        // Centre Y: 35 % below the lower lid — shifted down so the ellipse
-        // extends further into the under-eye / cheek area.
-        const cy    = lowerLid.y + lidToCheek * 0.35;
-        // Semi-H: raised to 110 % of lid-to-cheek distance (OR 75 % of eye
-        // width) so the bottom of the ellipse reaches deeper down the cheek.
+        // Centre Y: 55 % below the lower lid — pushed down for deeper coverage.
+        const cy    = lowerLid.y + lidToCheek * 0.55;
+        // Semi-H: 150 % of lid-to-cheek distance (OR 110 % of eye width) so
+        // the bottom of the ellipse reaches well down into the cheek area.
         // The top edge is unaffected — the eye-opening cutout (Phase 2) always
         // clips the concealer back to the lower lash line.
-        const semiH = Math.min(lidToCheek * 1.10, eyeLen * 0.75);
+        const semiH = Math.min(lidToCheek * 1.50, eyeLen * 1.10);
         if (semiH < 1) return;
 
         const scaleY = semiH / semiW;
