@@ -894,9 +894,10 @@
         const semiW = (eyeLen * 0.5) * 1.60;
         // Centre Y: 20 % above the lid peak keeps the shadow on the lid.
         const cy    = lidPeak.y - lidToBrow * 0.20;
-        // Semi-H: 65 % of lid-to-brow — fills the lid; gradient fades naturally
-        // before the brow so no hard brow cutout is required.
-        const semiH = lidToBrow * 0.65;
+        // Semi-H: 65 % of lid-to-brow, with a minimum of 55 % of eye-width so
+        // both eyes stay the same height even when one browRef landmark sits
+        // slightly closer to its lid peak than the other.
+        const semiH = Math.max(lidToBrow * 0.65, eyeLen * 0.55);
         if (semiH < 1) return;
 
         const scaleY = semiH / semiW;
@@ -921,20 +922,38 @@
         offCtx.fill();
         offCtx.restore();
 
-        // ── Phase 2: feathered eye-opening cutout ─────────────────────────────
-        // Gradient destination-out: hard erase inside innerR, feathers to zero
-        // at outerR — no blur filter needed, matches the softness of the shadow.
+        // ── Phase 2: soft brow mask ────────────────────────────────────────────
+        // A linear-gradient destination-out erases shadow that bleeds above the
+        // brow reference.  The gradient is transparent at brow.y (preserve shadow
+        // right up to the brow line) and fully opaque at brow.y − fadeH (erase
+        // cleanly above).  A rect clipped to the shadow width applies the mask
+        // without touching anything outside the eye region.
+        const browFadeH = lidToBrow * 0.28;
+        const browMask  = offCtx.createLinearGradient(0, brow.y, 0, brow.y - browFadeH);
+        browMask.addColorStop(0, 'rgba(0,0,0,0)');
+        browMask.addColorStop(1, 'rgba(0,0,0,1)');
+        offCtx.save();
+        offCtx.globalCompositeOperation = 'destination-out';
+        offCtx.fillStyle = browMask;
+        offCtx.fillRect(midX - semiW, 0, semiW * 2, Math.ceil(brow.y));
+        offCtx.restore();
+
+        // ── Phase 3: feathered eye-opening cutout ─────────────────────────────
+        // Gradient destination-out: fully opaque inside innerR (eyeball safely
+        // erased), feathering to zero at outerR (soft lash-line edge).
+        // cutSemiW is sized to the full eye opening; centre is biased 60/40
+        // toward the upper lid because the shadow bleeds downward from above.
         const eyeCx    = (outer.x + inner.x) * 0.5;
-        const eyeCy    = (lidPeak.y + lowerLid.y) * 0.5;
+        const eyeCy    = lidPeak.y * 0.60 + lowerLid.y * 0.40;
         const eyeH     = Math.abs(lidPeak.y - lowerLid.y);
-        const cutSemiW = (eyeLen  * 0.5) * 0.82;
-        const cutSemiH = (eyeH   * 0.5) * 1.00;
+        const cutSemiW = (eyeLen * 0.5) * 0.95;
+        const cutSemiH = (eyeH  * 0.5) * 1.05;
         if (cutSemiW < 1 || cutSemiH < 1) return;
 
         const cutScaleY = cutSemiH / cutSemiW;
         const eyeCys    = eyeCy / cutScaleY;
-        const innerR    = cutSemiW * 0.55;
-        const outerR    = cutSemiW * 1.10;
+        const innerR    = cutSemiW * 0.68;
+        const outerR    = cutSemiW * 1.05;
 
         const cutGrad = offCtx.createRadialGradient(
           eyeCx, eyeCys, innerR,
