@@ -819,39 +819,28 @@
     },
 
     /**
-     * Draw feathered eyeshadow above each eye using a unified landmark polygon.
+     * Draw soft, feathered eyeshadow above each eye.
      *
-     * Previous approach (multiple gradient ellipses) produced visible patches
-     * where blobs overlapped or gapped.  This version traces a single closed
-     * polygon per eye, fills it with a radial gradient, then applies a Gaussian
-     * blur (ctx.filter) for smooth feathered edges — no separate blobs needed.
+     * A single radial-gradient ellipse per eye is drawn on an offscreen canvas,
+     * then the eye opening is punched out with a gradient-based destination-out
+     * before the result is composited onto the main canvas.
      *
-     * Per-eye pipeline (all work done on an offscreen canvas):
+     * One ellipse (no extra corner blobs) eliminates the seaming/patching that
+     * occurred when multiple gradient shapes overlapped.  The ellipse is wide
+     * enough (semi-W = half-eye-length × 1.60) to cover the outer and inner
+     * corner areas naturally, and the radial gradient fades to zero before
+     * reaching the brow so no hard brow cutout is needed.
      *
-     *   Phase 1 — shadow polygon
-     *     Bottom edge : upper eyelid landmark arc  (refs.upperLidArc) traced
-     *                   outer-corner → inner-corner following the real lid contour,
-     *                   with the corners themselves extended 12 %/10 % of eye-width
-     *                   past the canthi for full left/right coverage.
-     *     Top edge    : a single quadratic Bézier from the extended inner corner
-     *                   back to the extended outer corner, with a control point
-     *                   placed slightly above the browRef landmark.  This creates
-     *                   a smooth arch that intentionally overshoots the brow line;
-     *                   the brow cutout in Phase 2 carves it back cleanly.
-     *     Fill        : radial gradient centred above the lid peak, radius = 90 %
-     *                   of eye-width.  Peaks at 0.80 opacity and fades to 0.
-     *     Edge feather: ctx.filter = 'blur(N px)' softens the polygon boundary,
-     *                   eliminating hard edges without any multi-blob complexity.
+     * Ellipse geometry (per eye):
+     *   Centre X  = eye midpoint shifted 8 % toward the outer corner.
+     *   Centre Y  = lid peak shifted 20 % of lid-to-brow distance upward.
+     *   Semi-W    = half eye-length × 1.60  (covers corners, extends to temples).
+     *   Semi-H    = lid-to-brow distance × 0.65.
+     *   Peak opacity = 0.55, fading smoothly to 0 at the ellipse boundary.
      *
-     *   Phase 2 — eyebrow cutout  (destination-out + blur)
-     *     The brow polygon (refs.browPoly) is drawn as a solid black fill with a
-     *     larger blur radius, erasing shadow that bled into the brow hair region
-     *     and leaving a soft, feathered transition at the brow lower edge.
-     *
-     *   Phase 3 — eye-opening cutout  (destination-out + blur)
-     *     An ellipse sized to the real eye opening (outer→inner width, lid-peak
-     *     to lower-lid height) is drawn solid and blurred, erasing shadow from
-     *     the eyeball area with a naturally feathered edge at the lash line.
+     * Eye-opening cutout:
+     *   Gradient destination-out: fully opaque inside r = 55 % of cutSemiW,
+     *   fading to transparent at r = 110 %, giving a feathered lash-line edge.
      */
     drawEyeshadow: function (ctx, landmarks, color, t) {
       const srcW  = (t && t.srcW)  || 0;
@@ -874,8 +863,7 @@
         return 'rgba(' + r + ',' + g + ',' + b + ',' + a + ')';
       };
 
-      // Offscreen canvas — all compositing stays here; destination-out never
-      // touches the main canvas layers (foundation, blush, etc.).
+      // Offscreen canvas keeps destination-out away from the main canvas layers.
       const canvasW = ctx.canvas.width;
       const canvasH = ctx.canvas.height;
       const off    = document.createElement('canvas');
@@ -894,95 +882,68 @@
         const eyeLen = Math.sqrt(eyeVec.x * eyeVec.x + eyeVec.y * eyeVec.y);
         if (eyeLen < 1) return;
 
-        const lidToBrow = lidPeak.y - brow.y;  // positive: brow is above lid
+        const lidToBrow = lidPeak.y - brow.y;
         if (lidToBrow < 1) return;
 
-        // Corner extension points — push 12 %/10 % of eye-width past each canthus
-        // so the shadow reaches the full left/right extent of the lid.
-        const outerExt = { x: outer.x - eyeVec.x * 0.12, y: outer.y };
-        const innerExt = { x: inner.x + eyeVec.x * 0.10, y: inner.y };
+        // ── Phase 1: single radial-gradient ellipse ───────────────────────────
+        // Centre X: midpoint shifted 8 % outward toward the temple.
+        const midX  = (outer.x + inner.x) * 0.5 - eyeVec.x * 0.08;
+        // Semi-W: 60 % wider than the half eye-length covers the corner areas
+        // without needing separate corner blobs (which caused visible seams).
+        const semiW = (eyeLen * 0.5) * 1.60;
+        // Centre Y: 20 % above the lid peak keeps the shadow on the lid.
+        const cy    = lidPeak.y - lidToBrow * 0.20;
+        // Semi-H: 65 % of lid-to-brow — fills the lid; gradient fades naturally
+        // before the brow so no hard brow cutout is required.
+        const semiH = lidToBrow * 0.65;
+        if (semiH < 1) return;
 
-        // Linear gradient — dense at the lash line, fading to transparent at the
-        // brow reference.  Unlike a radial, this stays evenly opaque across the
-        // full lid width, matching the "before" look where the entire eyelid is
-        // filled with colour that fades toward the brow.
-        const grad = offCtx.createLinearGradient(0, lidPeak.y, 0, brow.y);
-        grad.addColorStop(0,    rgba(0.88));
-        grad.addColorStop(0.50, rgba(0.65));
-        grad.addColorStop(0.88, rgba(0.28));
+        const scaleY = semiH / semiW;
+        const cys    = cy / scaleY;
+
+        const grad = offCtx.createRadialGradient(midX, cys, 0, midX, cys, semiW);
+        grad.addColorStop(0,    rgba(0.55));
+        grad.addColorStop(0.35, rgba(0.38));
+        grad.addColorStop(0.65, rgba(0.18));
+        grad.addColorStop(0.85, rgba(0.06));
         grad.addColorStop(1,    rgba(0));
 
-        // Blur radius scales with eye size so feathering looks consistent at
-        // any face distance.
-        const blurPx = Math.max(3, Math.round(eyeLen * 0.05));
-
-        // ── Phase 1: shadow polygon ───────────────────────────────────────────
         offCtx.save();
-        offCtx.filter = 'blur(' + blurPx + 'px)';
+        offCtx.scale(1, scaleY);
         offCtx.beginPath();
-
-        // Bottom edge: extended outer corner → actual lid arc → extended inner corner
-        offCtx.moveTo(outerExt.x, outerExt.y);
-        offCtx.lineTo(outer.x, outer.y);
-        refs.upperLidArc.forEach(function (idx) {
-          const p = px(idx);
-          offCtx.lineTo(p.x, p.y);
-        });
-        offCtx.lineTo(inner.x, inner.y);
-        offCtx.lineTo(innerExt.x, innerExt.y);
-
-        // Top edge: smooth quadratic arc back to the extended outer corner.
-        // A quadratic Bézier only reaches ~halfway to its control point, so the
-        // control must be set at 0.80 × lidToBrow above browRef to make the arc
-        // peak at roughly 90 % of the lid-to-brow distance — filling the full
-        // eyelid.  Phase 2 (brow cutout) removes whatever overshoots into the
-        // brow hair area, leaving a clean feathered top edge.
-        const topCtrlX = (outerExt.x + innerExt.x) * 0.5;
-        const topCtrlY = brow.y - lidToBrow * 0.80;
-        offCtx.quadraticCurveTo(topCtrlX, topCtrlY, outerExt.x, outerExt.y);
-
+        offCtx.arc(midX, cys, semiW, 0, Math.PI * 2);
         offCtx.fillStyle = grad;
         offCtx.fill();
         offCtx.restore();
 
-        // ── Phase 2: eyebrow cutout ───────────────────────────────────────────
-        // Larger blur here creates a gradual fade at the brow's lower edge so
-        // the shadow-to-skin transition is never a hard line.
-        const browBlurPx = Math.max(5, Math.round(eyeLen * 0.06));
-
-        offCtx.save();
-        offCtx.globalCompositeOperation = 'destination-out';
-        offCtx.filter = 'blur(' + browBlurPx + 'px)';
-        offCtx.beginPath();
-        refs.browPoly.forEach(function (idx, i) {
-          const p = px(idx);
-          if (i === 0) offCtx.moveTo(p.x, p.y);
-          else         offCtx.lineTo(p.x, p.y);
-        });
-        offCtx.closePath();
-        offCtx.fillStyle = 'rgba(0,0,0,1)';
-        offCtx.fill();
-        offCtx.restore();
-
-        // ── Phase 3: eye-opening cutout ───────────────────────────────────────
-        // Ellipse sized to the real eye opening; blur feathers the lash-line edge.
-        const eyeCx     = (outer.x + inner.x) * 0.5;
-        const eyeCy     = (lidPeak.y + lowerLid.y) * 0.5;
-        const eyeH      = Math.abs(lidPeak.y - lowerLid.y);
-        const cutSemiW  = (eyeLen * 0.5) * 0.88;
-        const cutSemiH  = (eyeH  * 0.5) * 1.00;
+        // ── Phase 2: feathered eye-opening cutout ─────────────────────────────
+        // Gradient destination-out: hard erase inside innerR, feathers to zero
+        // at outerR — no blur filter needed, matches the softness of the shadow.
+        const eyeCx    = (outer.x + inner.x) * 0.5;
+        const eyeCy    = (lidPeak.y + lowerLid.y) * 0.5;
+        const eyeH     = Math.abs(lidPeak.y - lowerLid.y);
+        const cutSemiW = (eyeLen  * 0.5) * 0.82;
+        const cutSemiH = (eyeH   * 0.5) * 1.00;
         if (cutSemiW < 1 || cutSemiH < 1) return;
 
-        const cutScaleY  = cutSemiH / cutSemiW;
-        const eyeBlurPx  = Math.max(2, Math.round(eyeLen * 0.035));
+        const cutScaleY = cutSemiH / cutSemiW;
+        const eyeCys    = eyeCy / cutScaleY;
+        const innerR    = cutSemiW * 0.55;
+        const outerR    = cutSemiW * 1.10;
+
+        const cutGrad = offCtx.createRadialGradient(
+          eyeCx, eyeCys, innerR,
+          eyeCx, eyeCys, outerR
+        );
+        cutGrad.addColorStop(0, 'rgba(0,0,0,1)');
+        cutGrad.addColorStop(1, 'rgba(0,0,0,0)');
 
         offCtx.save();
         offCtx.globalCompositeOperation = 'destination-out';
-        offCtx.filter = 'blur(' + eyeBlurPx + 'px)';
         offCtx.scale(1, cutScaleY);
         offCtx.beginPath();
-        offCtx.arc(eyeCx, eyeCy / cutScaleY, cutSemiW, 0, Math.PI * 2);
-        offCtx.fillStyle = 'rgba(0,0,0,1)';
+        offCtx.arc(eyeCx, eyeCys, outerR, 0, Math.PI * 2);
+        offCtx.fillStyle = cutGrad;
         offCtx.fill();
         offCtx.restore();
       };
@@ -990,7 +951,6 @@
       drawEye(REGION_POLYGONS.left_eyeshadow);
       drawEye(REGION_POLYGONS.right_eyeshadow);
 
-      // Stamp the composited result onto the main canvas.
       ctx.drawImage(off, 0, 0);
     },
 
