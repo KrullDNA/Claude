@@ -902,15 +902,14 @@
         const outerExt = { x: outer.x - eyeVec.x * 0.12, y: outer.y };
         const innerExt = { x: inner.x + eyeVec.x * 0.10, y: inner.y };
 
-        // Gradient centre: above the lid peak, radius spans the full eye-width.
-        const gradCx = (outer.x + inner.x) * 0.5;
-        const gradCy = lidPeak.y - lidToBrow * 0.30;
-        const gradR  = eyeLen * 0.90;
-
-        const grad = offCtx.createRadialGradient(gradCx, gradCy, 0, gradCx, gradCy, gradR);
-        grad.addColorStop(0,    rgba(0.80));
-        grad.addColorStop(0.50, rgba(0.60));
-        grad.addColorStop(0.78, rgba(0.28));
+        // Linear gradient — dense at the lash line, fading to transparent at the
+        // brow reference.  Unlike a radial, this stays evenly opaque across the
+        // full lid width, matching the "before" look where the entire eyelid is
+        // filled with colour that fades toward the brow.
+        const grad = offCtx.createLinearGradient(0, lidPeak.y, 0, brow.y);
+        grad.addColorStop(0,    rgba(0.88));
+        grad.addColorStop(0.50, rgba(0.65));
+        grad.addColorStop(0.88, rgba(0.28));
         grad.addColorStop(1,    rgba(0));
 
         // Blur radius scales with eye size so feathering looks consistent at
@@ -933,11 +932,13 @@
         offCtx.lineTo(innerExt.x, innerExt.y);
 
         // Top edge: smooth quadratic arc back to the extended outer corner.
-        // The control point sits just above the browRef landmark — deliberately
-        // overshooting the brow so the shadow fills all the way up; Phase 2
-        // (brow cutout) then removes whatever enters the brow hair area.
+        // A quadratic Bézier only reaches ~halfway to its control point, so the
+        // control must be set at 0.80 × lidToBrow above browRef to make the arc
+        // peak at roughly 90 % of the lid-to-brow distance — filling the full
+        // eyelid.  Phase 2 (brow cutout) removes whatever overshoots into the
+        // brow hair area, leaving a clean feathered top edge.
         const topCtrlX = (outerExt.x + innerExt.x) * 0.5;
-        const topCtrlY = brow.y - lidToBrow * 0.10;
+        const topCtrlY = brow.y - lidToBrow * 0.80;
         offCtx.quadraticCurveTo(topCtrlX, topCtrlY, outerExt.x, outerExt.y);
 
         offCtx.fillStyle = grad;
