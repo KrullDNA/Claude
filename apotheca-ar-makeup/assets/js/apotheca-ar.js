@@ -894,10 +894,11 @@
         const semiW = (eyeLen * 0.5) * 1.60;
         // Centre Y: 20 % above the lid peak keeps the shadow on the lid.
         const cy    = lidPeak.y - lidToBrow * 0.20;
-        // Semi-H: 65 % of lid-to-brow, with a minimum of 55 % of eye-width so
-        // both eyes stay the same height even when one browRef landmark sits
-        // slightly closer to its lid peak than the other.
-        const semiH = Math.max(lidToBrow * 0.65, eyeLen * 0.55);
+        // Semi-H: smaller of 80 % of lid-to-brow OR 55 % of eye-width.
+        // Math.min (not max) ensures the shadow tracks the lid position —
+        // when eyes relax the lid rises and lidToBrow shrinks, so the cap
+        // prevents the shadow from overshooting into the brow.
+        const semiH = Math.min(lidToBrow * 0.80, eyeLen * 0.55);
         if (semiH < 1) return;
 
         const scaleY = semiH / semiW;
@@ -922,20 +923,44 @@
         offCtx.fill();
         offCtx.restore();
 
-        // ── Phase 2: soft brow mask ────────────────────────────────────────────
-        // A linear-gradient destination-out erases shadow that bleeds above the
-        // brow reference.  The gradient is transparent at brow.y (preserve shadow
-        // right up to the brow line) and fully opaque at brow.y − fadeH (erase
-        // cleanly above).  A rect clipped to the shadow width applies the mask
-        // without touching anything outside the eye region.
-        const browFadeH = lidToBrow * 0.28;
-        const browMask  = offCtx.createLinearGradient(0, brow.y, 0, brow.y - browFadeH);
-        browMask.addColorStop(0, 'rgba(0,0,0,0)');
-        browMask.addColorStop(1, 'rgba(0,0,0,1)');
+        // ── Phase 2: eyebrow cutout ────────────────────────────────────────────
+        // Two-pass destination-out to remove shadow from the brow region.
+        //
+        // Pass A — browPoly polygon with a small blur.
+        //   Follows the actual brow landmark shape so the erase is accurate
+        //   regardless of eye-openness.  A small blur feathers the lower brow
+        //   edge so the shadow-to-brow transition is soft, not hard.
+        const browBlurPx = Math.max(3, Math.round(eyeLen * 0.03));
         offCtx.save();
         offCtx.globalCompositeOperation = 'destination-out';
-        offCtx.fillStyle = browMask;
-        offCtx.fillRect(midX - semiW, 0, semiW * 2, Math.ceil(brow.y));
+        offCtx.filter = 'blur(' + browBlurPx + 'px)';
+        offCtx.beginPath();
+        refs.browPoly.forEach(function (idx, i) {
+          const p = px(idx);
+          if (i === 0) offCtx.moveTo(p.x, p.y);
+          else         offCtx.lineTo(p.x, p.y);
+        });
+        offCtx.closePath();
+        offCtx.fillStyle = 'rgba(0,0,0,1)';
+        offCtx.fill();
+        offCtx.restore();
+        //
+        // Pass B — gradient rect above the topmost brow landmark.
+        //   Erases any shadow that overshoots above the brow polygon itself,
+        //   fading from transparent at the brow top to fully opaque further up.
+        const browTopY = refs.browPoly.reduce(function (topY, idx) {
+          return Math.min(topY, px(idx).y);
+        }, brow.y);
+        const aboveFadeH = Math.max(4, lidToBrow * 0.18);
+        const aboveMask  = offCtx.createLinearGradient(
+          0, browTopY + aboveFadeH, 0, browTopY);
+        aboveMask.addColorStop(0, 'rgba(0,0,0,0)');
+        aboveMask.addColorStop(1, 'rgba(0,0,0,1)');
+        offCtx.save();
+        offCtx.globalCompositeOperation = 'destination-out';
+        offCtx.fillStyle = aboveMask;
+        offCtx.fillRect(midX - semiW, 0, semiW * 2,
+                        Math.ceil(browTopY + aboveFadeH));
         offCtx.restore();
 
         // ── Phase 3: feathered eye-opening cutout ─────────────────────────────
