@@ -59,6 +59,20 @@
       browPoly:    [300, 293, 334, 296, 336, 285, 295, 282, 283, 276],
     },
 
+    // Concealer reference landmarks (under-eye / eye-bag coverage).
+    // Mirrors eyeshadow geometry but positioned below the lower lid.
+    // outer/inner:   eye corner landmarks — define the horizontal span.
+    // lidPeak:       topmost upper-lid point — used only for the eye-opening cutout.
+    // lowerLid:      lowest point of the lower eyelid — top edge of the concealer.
+    // cheekRef:      infraorbital-rim landmark directly below the eye centre;
+    //                defines how far DOWN the concealer ellipse extends.
+    left_concealer: {
+      outer: 33, inner: 133, lidPeak: 159, lowerLid: 145, cheekRef: 119,
+    },
+    right_concealer: {
+      outer: 263, inner: 362, lidPeak: 386, lowerLid: 374, cheekRef: 348,
+    },
+
     // Foundation (full face oval, chin to hairline)
     face_oval: [10, 338, 297, 332, 284, 251, 389, 356, 454, 323, 361, 288,
                 397, 365, 379, 378, 400, 377, 152, 148, 176, 149, 150, 136,
@@ -682,6 +696,12 @@
         this.drawFoundation(ctx, landmarks, this.selectedRegions.foundation, t);
       }
 
+      // Concealer (under-eye coverage — above foundation, below blush/eyeshadow)
+      const concealerSel = this.selectedRegions.concealer;
+      if (concealerSel) {
+        this.drawConcealer(ctx, landmarks, concealerSel, t);
+      }
+
       // Blush (upper cheeks — rendered above foundation, below eye makeup)
       if (this.selectedRegions.blush) {
         this.drawBlush(ctx, landmarks, this.selectedRegions.blush, t);
@@ -1000,6 +1020,133 @@
 
       drawEye(REGION_POLYGONS.left_eyeshadow);
       drawEye(REGION_POLYGONS.right_eyeshadow);
+
+      ctx.drawImage(off, 0, 0);
+    },
+
+    /**
+     * Draw soft under-eye concealer on both eyes.
+     *
+     * Mirrors drawEyeshadow geometry but placed below the lower lid to cover
+     * the eye-bag area.  A single radial-gradient ellipse is drawn on an
+     * offscreen canvas; a feathered destination-out cutout then removes any
+     * colour that bleeds into the eye opening above the lower lash line.
+     *
+     * Key differences from drawEyeshadow:
+     *   - cy is 20 % BELOW lowerLid (not above lidPeak)
+     *   - depth reference is cheekRef (infraorbital rim) instead of browRef
+     *   - no brow cutout pass needed
+     *   - eye-opening cutout centre is biased 70/30 toward the lower lid
+     */
+    drawConcealer: function (ctx, landmarks, color, t) {
+      const srcW  = (t && t.srcW)  || 0;
+      const srcH  = (t && t.srcH)  || 0;
+      const scale = (t && t.scale) || 1;
+      const dx    = (t && t.dx)    || 0;
+      const dy    = (t && t.dy)    || 0;
+
+      const px = function (idx) {
+        const lm = landmarks[idx];
+        return { x: (lm.x * srcW * scale) + dx,
+                 y: (lm.y * srcH * scale) + dy };
+      };
+
+      const col  = (color && /^#[0-9a-fA-F]{6}$/.test(color)) ? color : '#e8c8a0';
+      const r    = parseInt(col.slice(1, 3), 16);
+      const g    = parseInt(col.slice(3, 5), 16);
+      const b    = parseInt(col.slice(5, 7), 16);
+      const rgba = function (a) {
+        return 'rgba(' + r + ',' + g + ',' + b + ',' + a + ')';
+      };
+
+      // Offscreen canvas keeps destination-out away from the main canvas layers.
+      const canvasW = ctx.canvas.width;
+      const canvasH = ctx.canvas.height;
+      const off    = document.createElement('canvas');
+      off.width    = canvasW;
+      off.height   = canvasH;
+      const offCtx = off.getContext('2d');
+
+      const drawEye = function (refs) {
+        const outer    = px(refs.outer);
+        const inner    = px(refs.inner);
+        const lidPeak  = px(refs.lidPeak);
+        const lowerLid = px(refs.lowerLid);
+        const cheek    = px(refs.cheekRef);
+
+        const eyeVec = { x: inner.x - outer.x, y: inner.y - outer.y };
+        const eyeLen = Math.sqrt(eyeVec.x * eyeVec.x + eyeVec.y * eyeVec.y);
+        if (eyeLen < 1) return;
+
+        const lidToCheek = cheek.y - lowerLid.y;   // positive: cheek is below lid
+        if (lidToCheek < 1) return;
+
+        // ── Phase 1: single radial-gradient ellipse ───────────────────────────
+        // Centre X: same outward temple shift as eyeshadow — eye bags are most
+        // visible toward the outer corner.
+        const midX  = (outer.x + inner.x) * 0.5 - eyeVec.x * 0.13;
+        // Semi-W: same 60 % extension as eyeshadow covers corner areas cleanly.
+        const semiW = (eyeLen * 0.5) * 1.60;
+        // Centre Y: 20 % below the lower lid (mirrors eyeshadow above upper lid).
+        const cy    = lowerLid.y + lidToCheek * 0.20;
+        // Semi-H: smaller of 80 % of lid-to-cheek distance OR 55 % of eye width.
+        const semiH = Math.min(lidToCheek * 0.80, eyeLen * 0.55);
+        if (semiH < 1) return;
+
+        const scaleY = semiH / semiW;
+        const cys    = cy / scaleY;
+
+        const grad = offCtx.createRadialGradient(midX, cys, 0, midX, cys, semiW);
+        grad.addColorStop(0,    rgba(0.55));
+        grad.addColorStop(0.28, rgba(0.44));
+        grad.addColorStop(0.55, rgba(0.30));
+        grad.addColorStop(0.75, rgba(0.12));
+        grad.addColorStop(0.90, rgba(0.03));
+        grad.addColorStop(1,    rgba(0));
+
+        offCtx.save();
+        offCtx.scale(1, scaleY);
+        offCtx.beginPath();
+        offCtx.arc(midX, cys, semiW, 0, Math.PI * 2);
+        offCtx.fillStyle = grad;
+        offCtx.fill();
+        offCtx.restore();
+
+        // ── Phase 2: feathered eye-opening cutout ─────────────────────────────
+        // Removes any concealer that bleeds up into the eye opening / iris.
+        // Centre biased 70/30 toward the lower lid (concealer is below, so most
+        // bleed is at the lower lash line rather than the upper lid).
+        const eyeCx    = (outer.x + inner.x) * 0.5;
+        const eyeCy    = lowerLid.y * 0.70 + lidPeak.y * 0.30;
+        const eyeH     = Math.abs(lidPeak.y - lowerLid.y);
+        const cutSemiW = (eyeLen * 0.5) * 0.95;
+        const cutSemiH = (eyeH  * 0.5) * 1.05;
+        if (cutSemiW < 1 || cutSemiH < 1) return;
+
+        const cutScaleY = cutSemiH / cutSemiW;
+        const eyeCys    = eyeCy / cutScaleY;
+        const innerR    = cutSemiW * 0.68;
+        const outerR    = cutSemiW * 1.05;
+
+        const cutGrad = offCtx.createRadialGradient(
+          eyeCx, eyeCys, innerR,
+          eyeCx, eyeCys, outerR
+        );
+        cutGrad.addColorStop(0, 'rgba(0,0,0,1)');
+        cutGrad.addColorStop(1, 'rgba(0,0,0,0)');
+
+        offCtx.save();
+        offCtx.globalCompositeOperation = 'destination-out';
+        offCtx.scale(1, cutScaleY);
+        offCtx.beginPath();
+        offCtx.arc(eyeCx, eyeCys, outerR, 0, Math.PI * 2);
+        offCtx.fillStyle = cutGrad;
+        offCtx.fill();
+        offCtx.restore();
+      };
+
+      drawEye(REGION_POLYGONS.left_concealer);
+      drawEye(REGION_POLYGONS.right_concealer);
 
       ctx.drawImage(off, 0, 0);
     },
