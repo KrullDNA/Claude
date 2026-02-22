@@ -83,7 +83,7 @@ class Apotheca_AR_Attribute_Face_Region {
     }
 
     /**
-     * Render dropdown on Add Attribute form.
+     * Render checkboxes on Add Attribute form.
      */
     public function render_add_field() {
         if (!current_user_can('manage_woocommerce')) {
@@ -93,20 +93,23 @@ class Apotheca_AR_Attribute_Face_Region {
         $regions = self::get_regions();
 
         echo '<div class="form-field">';
-        echo '<label for="apotheca_ar_face_region">' . esc_html__('Face Region', 'apotheca-ar') . '</label>';
+        echo '<label>' . esc_html__('Face Region', 'apotheca-ar') . '</label>';
         wp_nonce_field(self::NONCE_ACTION, self::NONCE_NAME);
-        echo '<select name="apotheca_ar_face_region" id="apotheca_ar_face_region">';
-
+        echo '<fieldset style="border:0;padding:0;margin:0;">';
         foreach ($regions as $value => $label) {
+            if ($value === 'none') {
+                continue;
+            }
             printf(
-                '<option value="%s">%s</option>',
+                '<label style="display:block;font-weight:normal;margin-bottom:4px;">'
+                . '<input type="checkbox" name="apotheca_ar_face_region[]" value="%s" style="margin-right:6px;"> %s'
+                . '</label>',
                 esc_attr($value),
                 esc_html($label)
             );
         }
-
-        echo '</select>';
-        echo '<p class="description">' . esc_html__('Choose which part of the face this attribute controls in the AR Try‑On (e.g. Brow colour → Brows).', 'apotheca-ar') . '</p>';
+        echo '</fieldset>';
+        echo '<p class="description">' . esc_html__('Choose which part(s) of the face this attribute controls in the AR Try‑On. Select multiple for combination products (e.g. Lips + Blush).', 'apotheca-ar') . '</p>';
         echo '</div>';
     }
 
@@ -147,28 +150,33 @@ class Apotheca_AR_Attribute_Face_Region {
             }
         }
 
-        $current = apotheca_ar_get_attribute_face_region($attribute_id, $attribute_name);
-        if (!$current) {
-            $current = 'none';
-        }
+        $current_str = apotheca_ar_get_attribute_face_region($attribute_id, $attribute_name);
+        $current_arr = ($current_str && $current_str !== 'none')
+            ? array_map('trim', explode(',', $current_str))
+            : array();
 
         $regions = self::get_regions();
         ?>
         <tr class="form-field">
             <th scope="row" valign="top">
-                <label for="apotheca_ar_face_region"><?php echo esc_html__('Face Region', 'apotheca-ar'); ?></label>
+                <label><?php echo esc_html__('Face Region', 'apotheca-ar'); ?></label>
             </th>
             <td>
                 <?php wp_nonce_field(self::NONCE_ACTION, self::NONCE_NAME); ?>
-                <select name="apotheca_ar_face_region" id="apotheca_ar_face_region">
+                <fieldset style="border:0;padding:0;margin:0;">
                     <?php foreach ($regions as $value => $label) : ?>
-                        <option value="<?php echo esc_attr($value); ?>" <?php selected($current, $value); ?>>
+                        <?php if ($value === 'none') continue; ?>
+                        <label style="display:block;font-weight:normal;margin-bottom:4px;">
+                            <input type="checkbox"
+                                   name="apotheca_ar_face_region[]"
+                                   value="<?php echo esc_attr($value); ?>"
+                                   <?php checked(in_array($value, $current_arr, true)); ?>>
                             <?php echo esc_html($label); ?>
-                        </option>
+                        </label>
                     <?php endforeach; ?>
-                </select>
+                </fieldset>
                 <p class="description">
-                    <?php echo esc_html__('Choose which part of the face this attribute controls in the AR Try‑On (e.g. Brow colour → Brows).', 'apotheca-ar'); ?>
+                    <?php echo esc_html__('Choose which part(s) of the face this attribute controls in the AR Try‑On. Select multiple for combination products (e.g. Lips + Blush).', 'apotheca-ar'); ?>
                 </p>
             </td>
         </tr>
@@ -204,20 +212,26 @@ class Apotheca_AR_Attribute_Face_Region {
             }
         }
 
-        $region = isset($_REQUEST['apotheca_ar_face_region']) ? sanitize_text_field(wp_unslash($_REQUEST['apotheca_ar_face_region'])) : '';
-        if ($region === '') {
-            // Some WC AJAX flows may not include custom fields unless appended.
-            // Log it clearly so we can confirm whether admin JS is working.
+        // Checkboxes submit as an array; a single legacy string value is also accepted.
+        $raw_input = isset($_REQUEST['apotheca_ar_face_region']) ? $_REQUEST['apotheca_ar_face_region'] : array();
+        $raw_arr   = is_array($raw_input) ? $raw_input : array($raw_input);
+
+        $valid_regions = array_diff(array_keys(self::get_regions()), array('none'));
+        $selected      = array();
+        foreach ($raw_arr as $r) {
+            $r = sanitize_text_field(wp_unslash($r));
+            if (in_array($r, $valid_regions, true)) {
+                $selected[] = $r;
+            }
+        }
+
+        if (empty($selected)) {
             $this->debug_log('Missing apotheca_ar_face_region in request', array(
                 'action' => isset($_REQUEST['action']) ? sanitize_text_field(wp_unslash($_REQUEST['action'])) : '',
             ));
-            $region = 'none';
         }
 
-        $regions = array_keys(self::get_regions());
-        if (!in_array($region, $regions, true)) {
-            $region = 'none';
-        }
+        $region = empty($selected) ? 'none' : implode(',', $selected);
 
         $map = get_option(self::OPTION_NAME, array());
         if (!is_array($map)) {

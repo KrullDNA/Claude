@@ -282,10 +282,15 @@
         const color = $(this).data('color');
         const name = $(this).data('name');
         const attribute = $(this).data('attribute') || '';
-        const region =
+        const regionAttr =
           $(this).data('face-region') ||
           $(this).closest('.apotheca-variation-swatches').data('face-region') ||
           'none';
+
+        // Support comma-separated multi-region values (e.g. "lips,blush")
+        const regions = String(regionAttr).split(',')
+          .map(function (r) { return r.trim(); })
+          .filter(function (r) { return r && r !== 'none'; });
 
         const $group = $(this).closest('.apotheca-variation-swatches');
 
@@ -301,13 +306,12 @@
           ApothecaAR.selectedColors['_default'] = color;
         }
 
-        // Store per-region selection (new)
-        if (region && region !== 'none') {
-          ApothecaAR.selectedRegions[region] = color;
+        // Apply color to every mapped region (multi-region products supported)
+        if (regions.length > 0) {
+          regions.forEach(function (r) { ApothecaAR.updateMakeup(r, color); });
+        } else {
+          ApothecaAR.updateMakeup('none', color);
         }
-
-        // Backwards-compatible call (no longer lipstick-only)
-        ApothecaAR.updateMakeup(region, color);
 
         // Debug
         // console.log('Applied:', { name, color, attribute, region, selectedRegions: ApothecaAR.selectedRegions });
