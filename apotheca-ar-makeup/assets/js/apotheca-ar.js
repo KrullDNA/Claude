@@ -840,13 +840,21 @@
       const midY  = (minY + maxY) / 2;
 
       // How far above the tracked forehead to push the oval.
-      const HAIRLINE_EXTEND = 0.22;
+      // MediaPipe's face_oval already approximates the hairline, so only a
+      // modest extension is needed to close the gap at the top of the forehead.
+      // 0.22 crept into grey/white hair; 0.10 left a visible uncovered band.
+      // 0.16 is the midpoint that reaches the hairline without visible overshoot.
+      const HAIRLINE_EXTEND = 0.16;
 
-      // Extend only the upper half; leave lower half (jaw/chin) untouched
+      // Extend only the upper half; leave lower half (jaw/chin) untouched.
+      // All upper-half points are raised by the same absolute amount rather than
+      // proportionally.  The proportional formula gave temporal landmarks (which
+      // sit only 20-40 % of the way from midY to topY) far too little extension,
+      // leaving the right and left temporal forehead areas uncovered especially
+      // when the face is slightly tilted.  Uniform extension closes that gap.
       const extended = pts.map(function (p) {
         if (p.y >= midY) return p;
-        const relPos = (midY - p.y) / (midY - minY);
-        return { x: p.x, y: p.y - faceH * HAIRLINE_EXTEND * relPos };
+        return { x: p.x, y: p.y - faceH * HAIRLINE_EXTEND };
       });
 
       // ── Off-screen canvas (same physical-pixel buffer as main canvas) ─────────
@@ -903,6 +911,12 @@
       cutPoly([49, 64, 98, 97, 2, 129]);    // left nostril
       cutPoly([279, 294, 327, 326, 2, 358]); // right nostril
 
+      // Eyebrows — remove foundation from the brow area so the natural brow
+      // colour shows through.  Indices are the standard MediaPipe face-mesh
+      // eyebrow contour (upper arc + lower arc forming a closed loop).
+      cutPoly([46, 53, 52, 65, 55, 70, 63, 105, 66, 107]);         // right brow
+      cutPoly([276, 283, 282, 295, 285, 300, 293, 334, 296, 336]); // left brow
+
       // ── Phase 2.5: Hair-aware cutout ──────────────────────────────────────────
       // Reads the video frame already drawn on the main canvas (ctx) and finds
       // pixels inside the face oval that look like hair — i.e. significantly
@@ -943,7 +957,11 @@
           // (whose pixels are inherently closer to dark hair in RGB space) are
           // not incorrectly classified as hair.
           const HAIR_DIST = Math.max(30, skinLumH * 0.55); // colour-distance cutoff
-          const HAIR_LUM  = Math.max(12, skinLumH * 0.20); // pixel must also be darker
+          // Raised from 0.20 → 0.30: grey/silver hair is only ~20 % darker than
+          // skin and was being falsely detected, cutting out forehead skin at the
+          // temples.  0.30 still catches all genuinely dark hair while ignoring
+          // near-skin-tone grey hair that colour analysis cannot separate reliably.
+          const HAIR_LUM  = Math.max(15, skinLumH * 0.30); // pixel must also be darker
 
           // Convert the CSS-space extended polygon to buffer-pixel coords
           const hBufPts = extended.map(function (p) {
@@ -961,6 +979,38 @@
           hBx1 = Math.min(bufW - 1, Math.ceil(hBx1));
           hBy0 = Math.max(0, Math.floor(hBy0));
           hBy1 = Math.min(bufH - 1, Math.ceil(hBy1));
+
+          // ── Hairline-zone ceiling ─────────────────────────────────────────────
+          // Restrict the scan to above the eyebrow line so beard/stubble on the
+          // lower face and natural shadows around the eyes are never classified
+          // as hair.  Head hair (bangs, side hair from temples) only enters the
+          // face from the top, so scanning the upper zone is sufficient.
+          //
+          // Use the brow-reference landmarks from the eyeshadow config (66 left,
+          // 296 right) as the cutoff y-level, shifted slightly upward by 2 % of
+          // face height so the very top of the brow is still preserved.
+          if (landmarks[66] && landmarks[296]) {
+            const browY = (lmPx(66).y + lmPx(296).y) / 2;
+            const browYBuf = Math.floor((browY - faceH * 0.02) * dpr);
+            hBy1 = Math.min(hBy1, browYBuf);
+          }
+
+          // ── Horizontal + vertical top inset ──────────────────────────────────
+          // Pull the scan edges inward on all sides to create a dead-zone near
+          // the polygon boundary.  Without this, two problems occur:
+          //   • Temporal corners: the hair-skin boundary sits right at the
+          //     face-oval edge; the 3 px mask blur bleeds onto adjacent skin.
+          //   • Head-turn case: when the face is turned, the far-side temple
+          //     hair enters the polygon more deeply on the horizontal axis.
+          // 15 % left/right keeps the middle ~70 % of the forehead (where bangs
+          // actually fall) while excluding the temporal edges entirely.
+          // A 10 % top inset trims the very tip of the extended polygon where
+          // the sharp corners can produce mis-classified boundary pixels.
+          const hXInset = Math.round((hBx1 - hBx0) * 0.15);
+          hBx0 += hXInset;
+          hBx1 -= hXInset;
+          const hYInset = Math.round((hBy1 - hBy0) * 0.10);
+          hBy0 += hYInset;
 
           // Ray-cast point-in-polygon test (buffer-pixel coords)
           var hPIP = function (px, py) {
@@ -1022,7 +1072,7 @@
             octx.save();
             octx.globalCompositeOperation = 'destination-out';
             octx.globalAlpha = 1.0;
-            octx.filter = 'blur(3px)';
+            octx.filter = 'blur(2px)';
             // hmC is buffer-sized; octx uses the DPR transform so we pass CSS dims
             octx.drawImage(hmC, 0, 0, bufW, bufH, 0, 0, bufW / dpr, bufH / dpr);
             octx.restore();
