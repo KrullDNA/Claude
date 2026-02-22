@@ -903,6 +903,135 @@
       cutPoly([49, 64, 98, 97, 2, 129]);    // left nostril
       cutPoly([279, 294, 327, 326, 2, 358]); // right nostril
 
+      // ── Phase 2.5: Hair-aware cutout ──────────────────────────────────────────
+      // Reads the video frame already drawn on the main canvas (ctx) and finds
+      // pixels inside the face oval that look like hair — i.e. significantly
+      // darker and/or differently-coloured than the detected skin tone.  Those
+      // pixels are erased via destination-out so the foundation doesn't paint
+      // over bangs, side hair, or any other hair that falls across the face.
+      //
+      // The skin reference is sampled from stable nose-bridge landmarks that are
+      // never covered by hair.  Thresholds adapt to skin luminance so darker
+      // skin tones aren't over-classified as hair.  The resulting mask is blurred
+      // slightly before compositing to feather the hair-edge transition.
+      //
+      // Wrapped in try/catch: getImageData is blocked on tainted canvases
+      // (e.g. cross-origin video) and we degrade gracefully in that case.
+      try {
+        const hImgData = ctx.getImageData(0, 0, bufW, bufH);
+        const hPx      = hImgData.data;
+
+        // Sample skin reference colour from stable, hair-free nose-bridge area
+        const SKIN_IDXS = [168, 197, 195, 4, 1];
+        let skinR = 0, skinG = 0, skinB = 0, skinN = 0;
+        SKIN_IDXS.forEach(function (idx) {
+          if (!landmarks[idx]) return;
+          const sp  = lmPx(idx);
+          const spx = Math.round(sp.x * dpr);
+          const spy = Math.round(sp.y * dpr);
+          if (spx < 0 || spx >= bufW || spy < 0 || spy >= bufH) return;
+          const spo = (spy * bufW + spx) * 4;
+          if (hPx[spo + 3] < 128) return;
+          skinR += hPx[spo]; skinG += hPx[spo + 1]; skinB += hPx[spo + 2]; skinN++;
+        });
+
+        if (skinN > 0) {
+          skinR /= skinN; skinG /= skinN; skinB /= skinN;
+          const skinLumH = 0.299 * skinR + 0.587 * skinG + 0.114 * skinB;
+
+          // Adaptive thresholds — scaled by skin luminance so darker skin tones
+          // (whose pixels are inherently closer to dark hair in RGB space) are
+          // not incorrectly classified as hair.
+          const HAIR_DIST = Math.max(30, skinLumH * 0.55); // colour-distance cutoff
+          const HAIR_LUM  = Math.max(12, skinLumH * 0.20); // pixel must also be darker
+
+          // Convert the CSS-space extended polygon to buffer-pixel coords
+          const hBufPts = extended.map(function (p) {
+            return { x: p.x * dpr, y: p.y * dpr };
+          });
+          const hNP = hBufPts.length;
+
+          // Bounding box of the polygon in buffer-pixel space
+          let hBx0 = bufW, hBx1 = 0, hBy0 = bufH, hBy1 = 0;
+          hBufPts.forEach(function (p) {
+            if (p.x < hBx0) hBx0 = p.x; if (p.x > hBx1) hBx1 = p.x;
+            if (p.y < hBy0) hBy0 = p.y; if (p.y > hBy1) hBy1 = p.y;
+          });
+          hBx0 = Math.max(0, Math.floor(hBx0));
+          hBx1 = Math.min(bufW - 1, Math.ceil(hBx1));
+          hBy0 = Math.max(0, Math.floor(hBy0));
+          hBy1 = Math.min(bufH - 1, Math.ceil(hBy1));
+
+          // Ray-cast point-in-polygon test (buffer-pixel coords)
+          var hPIP = function (px, py) {
+            var inside = false;
+            for (var i = 0, j = hNP - 1; i < hNP; j = i++) {
+              var xi = hBufPts[i].x, yi = hBufPts[i].y;
+              var xj = hBufPts[j].x, yj = hBufPts[j].y;
+              if ((yi > py) !== (yj > py) &&
+                  px < (xj - xi) * (py - yi) / (yj - yi) + xi) {
+                inside = !inside;
+              }
+            }
+            return inside;
+          };
+
+          // Build the hair mask on a buffer-sized off-screen canvas
+          const hmC   = document.createElement('canvas');
+          hmC.width   = bufW;
+          hmC.height  = bufH;
+          const hmCtx = hmC.getContext('2d');
+          const hmImd = hmCtx.createImageData(bufW, bufH);
+          const hmD   = hmImd.data;
+          let hairFound = false;
+
+          // Sample every 2nd pixel and stamp 2×2 blocks to avoid gaps.
+          // This keeps the inner loop fast while maintaining solid coverage.
+          const HS = 2;
+          for (let hy = hBy0; hy <= hBy1; hy += HS) {
+            for (let hx = hBx0; hx <= hBx1; hx += HS) {
+              if (!hPIP(hx + 0.5, hy + 0.5)) continue;
+              const po = (hy * bufW + hx) * 4;
+              const pr = hPx[po], pg = hPx[po + 1], pb = hPx[po + 2], pa = hPx[po + 3];
+              if (pa < 128) continue;
+              const pLum  = 0.299 * pr + 0.587 * pg + 0.114 * pb;
+              const pDist = Math.sqrt(
+                (pr - skinR) * (pr - skinR) +
+                (pg - skinG) * (pg - skinG) +
+                (pb - skinB) * (pb - skinB)
+              );
+              if (pDist > HAIR_DIST && (skinLumH - pLum) > HAIR_LUM) {
+                for (let dy = 0; dy < HS; dy++) {
+                  for (let dx = 0; dx < HS; dx++) {
+                    const my = hy + dy, mx = hx + dx;
+                    if (my > hBy1 || mx > hBx1) continue;
+                    const mo = (my * bufW + mx) * 4;
+                    hmD[mo] = hmD[mo + 1] = hmD[mo + 2] = 0;
+                    hmD[mo + 3] = 255;
+                  }
+                }
+                hairFound = true;
+              }
+            }
+          }
+
+          if (hairFound) {
+            hmCtx.putImageData(hmImd, 0, 0);
+            // Erase hair pixels from the foundation layer; blur softens the
+            // hair-edge transition so it doesn't look like a hard cutout.
+            octx.save();
+            octx.globalCompositeOperation = 'destination-out';
+            octx.globalAlpha = 1.0;
+            octx.filter = 'blur(3px)';
+            // hmC is buffer-sized; octx uses the DPR transform so we pass CSS dims
+            octx.drawImage(hmC, 0, 0, bufW, bufH, 0, 0, bufW / dpr, bufH / dpr);
+            octx.restore();
+          }
+        }
+      } catch (e) {
+        // getImageData blocked (e.g. tainted canvas) — skip hair cutout gracefully
+      }
+
       // ── Phase 3: composite onto main canvas with edge feathering ─────────────
       // Opacity, feather (blur) and blend mode come from Elementor style controls.
       // Feather 0–100 % maps to 0–12 px of blur; default 25 % ≈ 3 px (original).
