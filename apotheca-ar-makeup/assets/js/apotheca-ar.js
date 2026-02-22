@@ -840,7 +840,11 @@
       const midY  = (minY + maxY) / 2;
 
       // How far above the tracked forehead to push the oval.
-      const HAIRLINE_EXTEND = 0.22;
+      // MediaPipe's face_oval already approximates the hairline, so only a
+      // small extension is needed to close the gap at the top of the forehead.
+      // 22 % was too aggressive: it pushed into the grey/white hair zone which
+      // colour-based detection cannot reliably cut back, causing visible creep.
+      const HAIRLINE_EXTEND = 0.10;
 
       // Extend only the upper half; leave lower half (jaw/chin) untouched
       const extended = pts.map(function (p) {
@@ -903,6 +907,12 @@
       cutPoly([49, 64, 98, 97, 2, 129]);    // left nostril
       cutPoly([279, 294, 327, 326, 2, 358]); // right nostril
 
+      // Eyebrows — remove foundation from the brow area so the natural brow
+      // colour shows through.  Indices are the standard MediaPipe face-mesh
+      // eyebrow contour (upper arc + lower arc forming a closed loop).
+      cutPoly([46, 53, 52, 65, 55, 70, 63, 105, 66, 107]);         // right brow
+      cutPoly([276, 283, 282, 295, 285, 300, 293, 334, 296, 336]); // left brow
+
       // ── Phase 2.5: Hair-aware cutout ──────────────────────────────────────────
       // Reads the video frame already drawn on the main canvas (ctx) and finds
       // pixels inside the face oval that look like hair — i.e. significantly
@@ -943,7 +953,11 @@
           // (whose pixels are inherently closer to dark hair in RGB space) are
           // not incorrectly classified as hair.
           const HAIR_DIST = Math.max(30, skinLumH * 0.55); // colour-distance cutoff
-          const HAIR_LUM  = Math.max(12, skinLumH * 0.20); // pixel must also be darker
+          // Raised from 0.20 → 0.30: grey/silver hair is only ~20 % darker than
+          // skin and was being falsely detected, cutting out forehead skin at the
+          // temples.  0.30 still catches all genuinely dark hair while ignoring
+          // near-skin-tone grey hair that colour analysis cannot separate reliably.
+          const HAIR_LUM  = Math.max(15, skinLumH * 0.30); // pixel must also be darker
 
           // Convert the CSS-space extended polygon to buffer-pixel coords
           const hBufPts = extended.map(function (p) {
@@ -1054,7 +1068,7 @@
             octx.save();
             octx.globalCompositeOperation = 'destination-out';
             octx.globalAlpha = 1.0;
-            octx.filter = 'blur(3px)';
+            octx.filter = 'blur(2px)';
             // hmC is buffer-sized; octx uses the DPR transform so we pass CSS dims
             octx.drawImage(hmC, 0, 0, bufW, bufH, 0, 0, bufW / dpr, bufH / dpr);
             octx.restore();
