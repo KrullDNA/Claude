@@ -846,11 +846,15 @@
       // 0.16 is the midpoint that reaches the hairline without visible overshoot.
       const HAIRLINE_EXTEND = 0.16;
 
-      // Extend only the upper half; leave lower half (jaw/chin) untouched
+      // Extend only the upper half; leave lower half (jaw/chin) untouched.
+      // All upper-half points are raised by the same absolute amount rather than
+      // proportionally.  The proportional formula gave temporal landmarks (which
+      // sit only 20-40 % of the way from midY to topY) far too little extension,
+      // leaving the right and left temporal forehead areas uncovered especially
+      // when the face is slightly tilted.  Uniform extension closes that gap.
       const extended = pts.map(function (p) {
         if (p.y >= midY) return p;
-        const relPos = (midY - p.y) / (midY - minY);
-        return { x: p.x, y: p.y - faceH * HAIRLINE_EXTEND * relPos };
+        return { x: p.x, y: p.y - faceH * HAIRLINE_EXTEND };
       });
 
       // ── Off-screen canvas (same physical-pixel buffer as main canvas) ─────────
