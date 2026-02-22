@@ -1436,13 +1436,14 @@
     /**
      * Draw soft feathered blush on both upper cheeks.
      *
-     * Each cheek is rendered as a radial gradient circle whose:
+     * Each cheek is rendered as a diagonal ellipse (~2.5 : 1 aspect ratio) whose:
      *   - centre  = centroid of the cheek anchor landmarks defined in REGION_POLYGONS
-     *   - radius  = ~65 % of the ipsilateral eye width (outer→inner corner distance),
-     *               which scales naturally with face size and distance from camera.
+     *   - size    = scaled from the ipsilateral eye width so it tracks face distance
+     *   - angle   = perpendicular to the eye axis + a small inward lean so the upper
+     *               end follows the cheekbone sweep toward the nose
      *
-     * The gradient fades from semi-opaque at the centre to fully transparent at the
-     * edge, giving the soft, feathered look typical of real blush.
+     * The gradient is built on a unit circle and then stretched via ctx.scale() to
+     * match the ellipse proportions, producing correct feathering in both axes.
      */
     drawBlush: function (ctx, landmarks, color, t, style) {
       const srcW  = (t && t.srcW)  || 0;
@@ -1470,11 +1471,14 @@
         return 'rgba(' + r + ',' + g + ',' + b + ',' + a + ')';
       };
 
-      // Draw one feathered blush circle.
+      // Draw one feathered ellipse blush stroke.
       //   anchorIdxs   – landmark indices whose centroid is the blush centre.
       //   eyeOuterIdx  – lateral canthus (outer eye corner) for the same side.
       //   eyeInnerIdx  – medial canthus (inner eye corner) for the same side.
-      const drawCheek = function (anchorIdxs, eyeOuterIdx, eyeInnerIdx) {
+      //   inwardLean   – signed radians added to the perpendicular-to-eye angle
+      //                  so the upper end of the ellipse tilts toward the nose,
+      //                  following the cheekbone sweep.
+      const drawCheek = function (anchorIdxs, eyeOuterIdx, eyeInnerIdx, inwardLean) {
         // Centroid of the cheek anchor landmarks.
         let cx = 0, cy = 0;
         for (let i = 0; i < anchorIdxs.length; i++) {
@@ -1485,25 +1489,40 @@
         cx /= anchorIdxs.length;
         cy /= anchorIdxs.length;
 
-        // Radius based on ipsilateral eye width so it scales with face size.
+        // Scale from ipsilateral eye width so size tracks face distance.
         const outer = px(eyeOuterIdx);
         const inner = px(eyeInnerIdx);
         const eyeW  = Math.sqrt(
-          Math.pow(inner.x - outer.x, 2) + Math.pow(inner.y - outer.y, 2)
+          (inner.x - outer.x) * (inner.x - outer.x) +
+          (inner.y - outer.y) * (inner.y - outer.y)
         );
-        const radius = eyeW * 0.85;
-        if (radius < 1) return;
+        if (eyeW < 1) return;
 
-        // Feathered radial gradient: semi-opaque centre → fully transparent edge.
-        const grad = ctx.createRadialGradient(cx, cy, 0, cx, cy, radius);
+        // Major axis = perpendicular to the eye axis + inwardLean so the ellipse
+        // follows the cheekbone direction (upper end angled toward the nose).
+        const eyeAngle     = Math.atan2(inner.y - outer.y, inner.x - outer.x);
+        const ellipseAngle = eyeAngle + Math.PI / 2 + inwardLean;
+
+        // Semi-axes — tall and narrow (~2.5 : 1 aspect ratio).
+        const semiMajor = eyeW * 0.95;   // long axis, along the cheekbone sweep
+        const semiMinor = eyeW * 0.38;   // short axis, across it
+
+        // Build the gradient on a unit circle, then apply translate/rotate/scale
+        // so the gradient is stretched to match the ellipse proportions.  This
+        // produces correct feathering in both the long and short axis directions,
+        // unlike a circular gradient clipped by an ellipse path.
+        const grad = ctx.createRadialGradient(0, 0, 0, 0, 0, 1);
         grad.addColorStop(0,    rgba(0.38));
         grad.addColorStop(0.45, rgba(0.22));
         grad.addColorStop(0.75, rgba(0.10));
         grad.addColorStop(1,    rgba(0));
 
         ctx.save();
+        ctx.translate(cx, cy);
+        ctx.rotate(ellipseAngle);
+        ctx.scale(semiMajor, semiMinor);
         ctx.beginPath();
-        ctx.arc(cx, cy, radius, 0, Math.PI * 2);
+        ctx.arc(0, 0, 1, 0, Math.PI * 2);
         ctx.fillStyle = grad;
         ctx.fill();
         ctx.restore();
@@ -1517,13 +1536,15 @@
       ctx.globalAlpha              = blushOpacity;
       ctx.globalCompositeOperation = blushBlend;
 
-      // Left cheek (image left / user's right cheek):
-      //   anchors = left_cheek_anchors, eye = landmarks 33 (outer) → 133 (inner)
-      drawCheek(REGION_POLYGONS.left_cheek_anchors,  33, 133);
+      // Left cheek  (image-left / user's right):
+      //   outer=33 → inner=133 goes rightward, perpendicular points down,
+      //   +0.25 rad lean tilts the upper end rightward (toward nose).
+      drawCheek(REGION_POLYGONS.left_cheek_anchors,   33, 133, +0.25);
 
-      // Right cheek (image right / user's left cheek):
-      //   anchors = right_cheek_anchors, eye = landmarks 263 (outer) → 362 (inner)
-      drawCheek(REGION_POLYGONS.right_cheek_anchors, 263, 362);
+      // Right cheek (image-right / user's left):
+      //   outer=263 → inner=362 goes leftward, perpendicular points down,
+      //   -0.25 rad lean tilts the upper end leftward (toward nose).
+      drawCheek(REGION_POLYGONS.right_cheek_anchors, 263, 362, -0.25);
 
       ctx.restore();
     },
