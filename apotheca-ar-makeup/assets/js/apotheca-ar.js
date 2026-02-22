@@ -841,10 +841,10 @@
 
       // How far above the tracked forehead to push the oval.
       // MediaPipe's face_oval already approximates the hairline, so only a
-      // small extension is needed to close the gap at the top of the forehead.
-      // 22 % was too aggressive: it pushed into the grey/white hair zone which
-      // colour-based detection cannot reliably cut back, causing visible creep.
-      const HAIRLINE_EXTEND = 0.10;
+      // modest extension is needed to close the gap at the top of the forehead.
+      // 0.22 crept into grey/white hair; 0.10 left a visible uncovered band.
+      // 0.16 is the midpoint that reaches the hairline without visible overshoot.
+      const HAIRLINE_EXTEND = 0.16;
 
       // Extend only the upper half; leave lower half (jaw/chin) untouched
       const extended = pts.map(function (p) {
