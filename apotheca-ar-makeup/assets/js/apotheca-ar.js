@@ -962,6 +962,21 @@
           hBy0 = Math.max(0, Math.floor(hBy0));
           hBy1 = Math.min(bufH - 1, Math.ceil(hBy1));
 
+          // ── Hairline-zone ceiling ─────────────────────────────────────────────
+          // Restrict the scan to above the eyebrow line so beard/stubble on the
+          // lower face and natural shadows around the eyes are never classified
+          // as hair.  Head hair (bangs, side hair from temples) only enters the
+          // face from the top, so scanning the upper zone is sufficient.
+          //
+          // Use the brow-reference landmarks from the eyeshadow config (66 left,
+          // 296 right) as the cutoff y-level, shifted slightly upward by 2 % of
+          // face height so the very top of the brow is still preserved.
+          if (landmarks[66] && landmarks[296]) {
+            const browY = (lmPx(66).y + lmPx(296).y) / 2;
+            const browYBuf = Math.floor((browY - faceH * 0.02) * dpr);
+            hBy1 = Math.min(hBy1, browYBuf);
+          }
+
           // Ray-cast point-in-polygon test (buffer-pixel coords)
           var hPIP = function (px, py) {
             var inside = false;
