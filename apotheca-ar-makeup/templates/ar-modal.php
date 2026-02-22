@@ -221,6 +221,38 @@ $tips_content = isset($modal_settings['tips_content']) ? $modal_settings['tips_c
     </div>
 </div>
 
+<?php
+// ── Product-level opacity overrides ──────────────────────────────────────────
+// Read lip_opacity and blush_opacity custom meta fields (0-100 integers).
+// Only regions with an explicit value are included; the JS falls back to the
+// Elementor widget setting for any region not present in this object.
+$product_styles = array();
+if (isset($product) && $product && is_a($product, 'WC_Product')) {
+    $product_id = $product->get_id();
+
+    $lip_raw = get_post_meta($product_id, 'lip_opacity', true);
+    if ($lip_raw !== '' && $lip_raw !== false && $lip_raw !== null) {
+        $lip_val = (int) $lip_raw;
+        if ($lip_val >= 0 && $lip_val <= 100) {
+            $product_styles['lips'] = array('opacity' => round($lip_val / 100, 4));
+        }
+    }
+
+    $blush_raw = get_post_meta($product_id, 'blush_opacity', true);
+    if ($blush_raw !== '' && $blush_raw !== false && $blush_raw !== null) {
+        $blush_val = (int) $blush_raw;
+        if ($blush_val >= 0 && $blush_val <= 100) {
+            $product_styles['blush'] = array('opacity' => round($blush_val / 100, 4));
+        }
+    }
+}
+?>
+<script>
+// Product-specific opacity overrides (empty object when no meta is set).
+// Merged over the Elementor widget defaults in _getRegionStyle().
+window.apothecaARProductStyles = <?php echo wp_json_encode(empty($product_styles) ? new stdClass() : $product_styles); ?>;
+</script>
+
 <script>
 jQuery(document).ready(function($) {
     // Color picker input display sync

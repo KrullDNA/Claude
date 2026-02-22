@@ -1935,8 +1935,15 @@
      * @return {Object}         { opacity?, feather?, blendMode }
      */
     _getRegionStyle: function (region) {
-      var styles = window.apothecaARRegionStyles || {};
-      return styles[region] || {};
+      // Three-level cascade (highest priority last in Object.assign):
+      //   1. Elementor widget settings  (window.apothecaARRegionStyles)
+      //   2. Product-level meta fields  (window.apothecaARProductStyles)
+      //      e.g. lip_opacity / blush_opacity on the WooCommerce product page.
+      //      Only regions with an explicit meta value appear here; all others
+      //      inherit from the widget setting unchanged.
+      var widgetStyles  = window.apothecaARRegionStyles  || {};
+      var productStyles = window.apothecaARProductStyles || {};
+      return Object.assign({}, widgetStyles[region] || {}, productStyles[region] || {});
     },
 
     updateMakeup: function (region, color) {
