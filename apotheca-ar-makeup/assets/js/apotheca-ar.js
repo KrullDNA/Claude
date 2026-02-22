@@ -977,6 +977,23 @@
             hBy1 = Math.min(hBy1, browYBuf);
           }
 
+          // ── Horizontal + vertical top inset ──────────────────────────────────
+          // Pull the scan edges inward on all sides to create a dead-zone near
+          // the polygon boundary.  Without this, two problems occur:
+          //   • Temporal corners: the hair-skin boundary sits right at the
+          //     face-oval edge; the 3 px mask blur bleeds onto adjacent skin.
+          //   • Head-turn case: when the face is turned, the far-side temple
+          //     hair enters the polygon more deeply on the horizontal axis.
+          // 15 % left/right keeps the middle ~70 % of the forehead (where bangs
+          // actually fall) while excluding the temporal edges entirely.
+          // A 10 % top inset trims the very tip of the extended polygon where
+          // the sharp corners can produce mis-classified boundary pixels.
+          const hXInset = Math.round((hBx1 - hBx0) * 0.15);
+          hBx0 += hXInset;
+          hBx1 -= hXInset;
+          const hYInset = Math.round((hBy1 - hBy0) * 0.10);
+          hBy0 += hYInset;
+
           // Ray-cast point-in-polygon test (buffer-pixel coords)
           var hPIP = function (px, py) {
             var inside = false;
