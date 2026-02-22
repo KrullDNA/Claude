@@ -1538,13 +1538,15 @@
 
       // Left cheek  (image-left / user's right):
       //   outer=33 → inner=133 goes rightward, perpendicular points down,
-      //   +0.25 rad lean tilts the upper end rightward (toward nose).
-      drawCheek(REGION_POLYGONS.left_cheek_anchors,   33, 133, +0.25);
+      //   -0.25 rad lean tilts the upper end leftward (toward temple/outer eye)
+      //   so the lower end sweeps rightward toward the nose.
+      drawCheek(REGION_POLYGONS.left_cheek_anchors,   33, 133, -0.25);
 
       // Right cheek (image-right / user's left):
       //   outer=263 → inner=362 goes leftward, perpendicular points down,
-      //   -0.25 rad lean tilts the upper end leftward (toward nose).
-      drawCheek(REGION_POLYGONS.right_cheek_anchors, 263, 362, -0.25);
+      //   +0.25 rad lean tilts the upper end rightward (toward temple/outer eye)
+      //   so the lower end sweeps leftward toward the nose.
+      drawCheek(REGION_POLYGONS.right_cheek_anchors, 263, 362, +0.25);
 
       ctx.restore();
     },
