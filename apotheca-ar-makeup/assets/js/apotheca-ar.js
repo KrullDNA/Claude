@@ -11,6 +11,39 @@
   let camera = null;
   let isRunning = false;
 
+  // Hand detection (optional — degrades gracefully if script not loaded)
+  let handsDetector = null;
+  let latestHandLandmarks = [];   // updated asynchronously by hands.onResults
+  let handFrameSkip = 0;          // counter used to throttle hand detection
+
+  // ── Convex hull (Andrew's monotone chain) ──────────────────────────────────
+  // Returns the minimal convex polygon enclosing the given [{x,y}] point set.
+  // Used to build a hand-shaped mask from the 21 MediaPipe hand landmarks.
+  function convexHull(pts) {
+    if (pts.length < 3) return pts.slice();
+    var sorted = pts.slice().sort(function (a, b) {
+      return a.x !== b.x ? a.x - b.x : a.y - b.y;
+    });
+    var cross = function (O, A, B) {
+      return (A.x - O.x) * (B.y - O.y) - (A.y - O.y) * (B.x - O.x);
+    };
+    var lower = [];
+    for (var i = 0; i < sorted.length; i++) {
+      while (lower.length >= 2 && cross(lower[lower.length - 2], lower[lower.length - 1], sorted[i]) <= 0)
+        lower.pop();
+      lower.push(sorted[i]);
+    }
+    var upper = [];
+    for (var j = sorted.length - 1; j >= 0; j--) {
+      while (upper.length >= 2 && cross(upper[upper.length - 2], upper[upper.length - 1], sorted[j]) <= 0)
+        upper.pop();
+      upper.push(sorted[j]);
+    }
+    lower.pop();
+    upper.pop();
+    return lower.concat(upper);
+  }
+
   // DOM refs (set on open)
   let $modal = null;
   let videoEl = null;
@@ -478,6 +511,24 @@
         });
       }
 
+      // Initialise hand detector once (degrades gracefully if CDN script absent)
+      if (!handsDetector && typeof Hands !== 'undefined') {
+        handsDetector = new Hands({
+          locateFile: function (file) {
+            return 'https://cdn.jsdelivr.net/npm/@mediapipe/hands/' + file;
+          }
+        });
+        handsDetector.setOptions({
+          maxNumHands: 2,
+          modelComplexity: 0,          // lite model — faster for real-time use
+          minDetectionConfidence: 0.7,
+          minTrackingConfidence: 0.5
+        });
+        handsDetector.onResults(function (results) {
+          latestHandLandmarks = results.multiHandLandmarks || [];
+        });
+      }
+
       // Start Camera once per open
       try {
         // Use higher ideal constraints to avoid blur on large canvases.
@@ -489,6 +540,11 @@
           onFrame: async () => {
             if (!isRunning) return;
             await faceMesh.send({ image: videoEl });
+            // Run hand detection on every other frame to keep the frame rate healthy.
+            // latestHandLandmarks is read by drawOverlays and stays valid between frames.
+            if (handsDetector && (++handFrameSkip % 2 === 0)) {
+              await handsDetector.send({ image: videoEl });
+            }
           },
           width: idealW,
           height: idealH
@@ -634,6 +690,10 @@
 
       camera = null;
 
+      // Clear stale hand data so no ghost mask appears next time the modal opens
+      latestHandLandmarks = [];
+      this._videoSnap = null;
+
       // Clear canvas
       try {
         if (ctx2d && canvasEl) {
@@ -687,6 +747,20 @@
       }
 
       ctx2d.restore();
+
+      // Snapshot the canvas as it looks with only the video frame drawn.
+      // drawOverlays will restore this under the hand hulls after compositing
+      // all makeup layers, so the real hand is visible instead of makeup.
+      if (latestHandLandmarks.length > 0) {
+        var snap = this._videoSnap;
+        if (!snap || snap.width !== canvasEl.width || snap.height !== canvasEl.height) {
+          snap = document.createElement('canvas');
+          snap.width  = canvasEl.width;
+          snap.height = canvasEl.height;
+          this._videoSnap = snap;
+        }
+        snap.getContext('2d').drawImage(canvasEl, 0, 0);
+      }
 
       const landmarks = results && results.multiFaceLandmarks && results.multiFaceLandmarks[0];
       if (!landmarks) return;
@@ -761,6 +835,14 @@
       const lipsSel = this.selectedRegions.lips || this.selectedRegions.upper_lip || this.selectedRegions.lower_lip;
       if (lipsSel) {
         this.drawLips(ctx, landmarks, lipsSel, t, this._getRegionStyle('lips'));
+      }
+
+      // ── Hand mask ────────────────────────────────────────────────────────────
+      // After all makeup layers are composited, restore the original video frame
+      // wherever hands are detected.  This prevents makeup from painting over
+      // the user's hand even while it is moving across the face.
+      if (latestHandLandmarks.length > 0 && this._videoSnap) {
+        this._applyHandMask(ctx, latestHandLandmarks, t);
       }
     },
 
@@ -1580,6 +1662,13 @@
       this._tracePath(octx, landmarks, REGION_POLYGONS.lips_outer, t);
       octx.fill();
 
+      // 1a. Gloss / lip-oil specular effect (product meta: gloss = true).
+      //     Drawn after the base fill so highlights sit on top of the colour,
+      //     but before the destination-out so the mouth opening clips them too.
+      if (lipsStyle.gloss) {
+        this._drawLipGloss(octx, landmarks, t, lipsOpacity);
+      }
+
       // 2. Punch out the inner mouth opening so open-mouth gap is transparent
       octx.globalCompositeOperation = 'destination-out';
       octx.globalAlpha = 1.0;
@@ -1947,6 +2036,273 @@
         ctx.lineTo((p.x * srcW * scale) + dx, (p.y * srcH * scale) + dy);
       }
       ctx.closePath();
+    },
+
+    /**
+     * Restore the raw video frame over every detected hand after all makeup
+     * layers have been composited onto the canvas.
+     *
+     * Shape quality
+     * ─────────────
+     * Instead of a convex hull (which fills between spread fingers), the hand
+     * shape is built anatomically:
+     *   • A filled polygon connects the wrist and all five MCP joints → palm.
+     *   • Each finger is a thick rounded stroke scaled to palm size → tubes.
+     *   • The mask is blurred 3 px before compositing for a feathered edge.
+     *
+     * Compositing strategy
+     * ────────────────────
+     *   1. Draw the hand anatomy onto a dedicated CSS-sized mask canvas.
+     *   2. Draw the pre-makeup snapshot onto a comp canvas.
+     *   3. destination-in with the blurred mask → only hand pixels survive.
+     *   4. source-over the result onto the main canvas.
+     */
+    _applyHandMask: function (ctx, multiHandLandmarks, t) {
+      if (!multiHandLandmarks || !multiHandLandmarks.length) return;
+      var snap = this._videoSnap;
+      if (!snap) return;
+
+      var bufW = canvasEl.width;
+      var bufH = canvasEl.height;
+      var dpr  = window.devicePixelRatio || 1;
+      var cssW = parseInt(canvasEl.style.width,  10) || Math.round(bufW / dpr);
+      var cssH = parseInt(canvasEl.style.height, 10) || Math.round(bufH / dpr);
+
+      // Reuse / resize helper canvases to avoid per-frame allocation
+      if (!this._handMaskC || this._handMaskC.width !== cssW || this._handMaskC.height !== cssH) {
+        this._handMaskC = document.createElement('canvas');
+        this._handMaskC.width  = cssW;
+        this._handMaskC.height = cssH;
+        this._handCompC = document.createElement('canvas');
+        this._handCompC.width  = cssW;
+        this._handCompC.height = cssH;
+      }
+
+      // Step 1 – draw all hand shapes onto the mask canvas
+      var mctx = this._handMaskC.getContext('2d');
+      mctx.clearRect(0, 0, cssW, cssH);
+      for (var h = 0; h < multiHandLandmarks.length; h++) {
+        this._drawHandShape(mctx, multiHandLandmarks[h], t);
+      }
+
+      // Step 2 – copy the video snapshot onto the comp canvas
+      var cctx = this._handCompC.getContext('2d');
+      cctx.clearRect(0, 0, cssW, cssH);
+      cctx.drawImage(snap, 0, 0, bufW, bufH, 0, 0, cssW, cssH);
+
+      // Step 3 – mask comp to hand shape; blur the mask for feathered edges
+      cctx.globalCompositeOperation = 'destination-in';
+      cctx.save();
+      cctx.filter = 'blur(3px)';
+      cctx.drawImage(this._handMaskC, 0, 0);
+      cctx.restore();
+      cctx.globalCompositeOperation = 'source-over';
+
+      // Step 4 – paint masked snapshot over the makeup on the main canvas
+      ctx.save();
+      ctx.globalCompositeOperation = 'source-over';
+      ctx.globalAlpha = 1.0;
+      ctx.drawImage(this._handCompC, 0, 0);
+      ctx.restore();
+    },
+
+    /**
+     * Paint the anatomical shape of one hand (white-filled) onto mctx.
+     *
+     * Palm   – filled polygon: wrist (0) → thumb CMC (1) → index MCP (5)
+     *          → middle MCP (9) → ring MCP (13) → pinky MCP (17) → close.
+     * Fingers – each drawn as a thick rounded stroke; lineWidth proportional
+     *           to palm size so the mask scales with camera distance.
+     *
+     * MediaPipe Hands landmark indices:
+     *   0 wrist · 1-4 thumb · 5-8 index · 9-12 middle · 13-16 ring · 17-20 pinky
+     */
+    _drawHandShape: function (mctx, lms, t) {
+      var srcW  = (t && t.srcW)  || 0;
+      var srcH  = (t && t.srcH)  || 0;
+      var scale = (t && t.scale) || 1;
+      var dx    = (t && t.dx)    || 0;
+      var dy    = (t && t.dy)    || 0;
+
+      var p = [];
+      for (var i = 0; i < lms.length; i++) {
+        p.push({
+          x: (lms[i].x * srcW * scale) + dx,
+          y: (lms[i].y * srcH * scale) + dy
+        });
+      }
+
+      // Palm size (wrist → middle MCP) as the proportional scale reference
+      var palmsz = Math.sqrt(
+        (p[9].x - p[0].x) * (p[9].x - p[0].x) +
+        (p[9].y - p[0].y) * (p[9].y - p[0].y)
+      );
+      if (palmsz < 4) return;
+
+      var fw = palmsz * 0.20; // base finger diameter (~20 % of palm)
+
+      mctx.fillStyle   = '#fff';
+      mctx.strokeStyle = '#fff';
+      mctx.lineCap     = 'round';
+      mctx.lineJoin    = 'round';
+
+      // Palm polygon
+      mctx.beginPath();
+      mctx.moveTo(p[0].x,  p[0].y);
+      mctx.lineTo(p[1].x,  p[1].y);
+      mctx.lineTo(p[5].x,  p[5].y);
+      mctx.lineTo(p[9].x,  p[9].y);
+      mctx.lineTo(p[13].x, p[13].y);
+      mctx.lineTo(p[17].x, p[17].y);
+      mctx.closePath();
+      mctx.fill();
+
+      // Finger tubes — widths approximate average human proportions
+      var fingers = [
+        { joints: [1, 2, 3, 4],     w: fw * 1.15 }, // thumb  (slightly wider)
+        { joints: [5, 6, 7, 8],     w: fw        }, // index
+        { joints: [9, 10, 11, 12],  w: fw * 1.05 }, // middle (widest)
+        { joints: [13, 14, 15, 16], w: fw        }, // ring
+        { joints: [17, 18, 19, 20], w: fw * 0.85 }, // pinky  (narrower)
+      ];
+
+      for (var f = 0; f < fingers.length; f++) {
+        var fg = fingers[f];
+        mctx.beginPath();
+        mctx.moveTo(p[fg.joints[0]].x, p[fg.joints[0]].y);
+        for (var j = 1; j < fg.joints.length; j++) {
+          mctx.lineTo(p[fg.joints[j]].x, p[fg.joints[j]].y);
+        }
+        mctx.lineWidth = fg.w;
+        mctx.stroke();
+      }
+    },
+
+    /**
+     * Draw a realistic lip-gloss / lip-oil specular effect onto the offscreen
+     * canvas that already has the lip base colour rendered.
+     *
+     * Must be called AFTER the outer lip fill but BEFORE the mouth-opening
+     * destination-out so the highlights are automatically clipped to the lip
+     * shape.
+     *
+     * Three layers:
+     *  1. Main lower-lip highlight  — wide horizontal ellipse, bright white,
+     *     positioned in the upper-third of the lower lip where glossy lips
+     *     catch the most direct light.
+     *  2. Cupid's bow twin highlights — two smaller ellipses on the raised
+     *     peaks of the upper lip, simulating dual specular points.
+     *  3. Diffuse wet-look sheen — very low-opacity glow across the full lip
+     *     area to suggest overall moisture away from the bright peaks.
+     *
+     * All layers use 'screen' composite so they brighten the underlying colour
+     * rather than opaquely covering it.
+     *
+     * @param {CanvasRenderingContext2D} octx        Off-screen DPR-scaled ctx.
+     * @param {Array}                   lms          468 MediaPipe face landmarks.
+     * @param {Object}                  t            Render transform.
+     * @param {number}                  lipsOpacity  0–1 base lip opacity.
+     */
+    _drawLipGloss: function (octx, lms, t, lipsOpacity) {
+      var self = this;
+
+      // --- Key landmark positions in CSS-px ---------------------------------
+      var leftCorner  = self._lmPx(lms[61],  t); // left lip corner
+      var rightCorner = self._lmPx(lms[291], t); // right lip corner
+      var upperCenter = self._lmPx(lms[0],   t); // top of upper lip (Cupid's bow midpoint)
+      var lowerOuter  = self._lmPx(lms[17],  t); // bottom of lower lip
+      var innerLower  = self._lmPx(lms[14],  t); // inner lower lip centre (near teeth)
+      var cupidLeft   = self._lmPx(lms[37],  t); // left Cupid's bow peak
+      var cupidRight  = self._lmPx(lms[267], t); // right Cupid's bow peak
+
+      var lipW    = rightCorner.x - leftCorner.x;
+      var lipMidX = (leftCorner.x + rightCorner.x) * 0.5;
+
+      // Lower-lip vertical extents
+      var lowerTop = innerLower.y;   // where the lower lip starts (teeth edge)
+      var lowerBot = lowerOuter.y;   // bottom of lower lip
+      var lowerH   = lowerBot - lowerTop;
+
+      // Full-lip vertical extents (for the diffuse sheen)
+      var fullLipTop  = upperCenter.y;
+      var fullLipMidY = (fullLipTop + lowerBot) * 0.5;
+
+      // Gloss intensity scales with lip opacity — more opaque = stronger shine.
+      var baseAlpha = Math.min(0.78, 0.45 + lipsOpacity * 0.33);
+
+      octx.save();
+      octx.globalAlpha              = 1.0;
+      octx.globalCompositeOperation = 'screen';
+
+      // ── 1. Main lower-lip specular highlight ──────────────────────────────
+      // Wide horizontal ellipse centred ~35 % below the top of the lower lip.
+      // This mimics the bright stripe seen on high-gloss / lip-oil finishes.
+      var hiX = lipMidX;
+      var hiY = lowerTop + lowerH * 0.35;
+      var hiW = lipW * 0.52;
+      var hiH = Math.max(lowerH * 0.28, hiW * 0.22);
+
+      var mainGrad = octx.createRadialGradient(0, 0, 0, 0, 0, 1);
+      mainGrad.addColorStop(0,    'rgba(255,255,255,' + baseAlpha.toFixed(3) + ')');
+      mainGrad.addColorStop(0.35, 'rgba(255,255,255,' + (baseAlpha * 0.60).toFixed(3) + ')');
+      mainGrad.addColorStop(0.70, 'rgba(255,255,255,' + (baseAlpha * 0.18).toFixed(3) + ')');
+      mainGrad.addColorStop(1,    'rgba(255,255,255,0)');
+
+      octx.save();
+      octx.translate(hiX, hiY);
+      octx.scale(hiW, hiH);
+      octx.beginPath();
+      octx.arc(0, 0, 1, 0, Math.PI * 2);
+      octx.fillStyle = mainGrad;
+      octx.fill();
+      octx.restore();
+
+      // ── 2. Cupid's bow twin highlights ────────────────────────────────────
+      // Two small ellipses on the raised peaks of the upper lip where the
+      // curved surface creates two distinct specular points.
+      var bowAlpha = baseAlpha * 0.50;
+      var bowW     = lipW * 0.13;
+      var bowH     = bowW * 0.50;
+
+      var bowGrad = octx.createRadialGradient(0, 0, 0, 0, 0, 1);
+      bowGrad.addColorStop(0,    'rgba(255,255,255,' + bowAlpha.toFixed(3) + ')');
+      bowGrad.addColorStop(0.45, 'rgba(255,255,255,' + (bowAlpha * 0.45).toFixed(3) + ')');
+      bowGrad.addColorStop(1,    'rgba(255,255,255,0)');
+
+      var bowPts = [cupidLeft, cupidRight];
+      for (var b = 0; b < bowPts.length; b++) {
+        octx.save();
+        octx.translate(bowPts[b].x, bowPts[b].y + bowH * 0.3);
+        octx.scale(bowW, bowH);
+        octx.beginPath();
+        octx.arc(0, 0, 1, 0, Math.PI * 2);
+        octx.fillStyle = bowGrad;
+        octx.fill();
+        octx.restore();
+      }
+
+      // ── 3. Diffuse wet-look sheen over the whole lip ──────────────────────
+      // Broad, very-low-opacity glow making the entire lip surface look moist
+      // even in areas away from the peak highlights.
+      var sheenAlpha = 0.14;
+      var sheenW     = lipW * 0.60;
+      var sheenH     = Math.abs(lowerBot - fullLipTop) * 0.50;
+
+      var sheenGrad = octx.createRadialGradient(0, 0, 0, 0, 0, 1);
+      sheenGrad.addColorStop(0,    'rgba(255,255,255,' + sheenAlpha.toFixed(3) + ')');
+      sheenGrad.addColorStop(0.55, 'rgba(255,255,255,' + (sheenAlpha * 0.5).toFixed(3) + ')');
+      sheenGrad.addColorStop(1,    'rgba(255,255,255,0)');
+
+      octx.save();
+      octx.translate(lipMidX, fullLipMidY);
+      octx.scale(sheenW, sheenH);
+      octx.beginPath();
+      octx.arc(0, 0, 1, 0, Math.PI * 2);
+      octx.fillStyle = sheenGrad;
+      octx.fill();
+      octx.restore();
+
+      octx.restore(); // restores globalAlpha and globalCompositeOperation
     },
 
     /**

@@ -133,6 +133,14 @@ wp_enqueue_script(
     true
 );
 
+wp_enqueue_script(
+    'mediapipe-hands',
+    'https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js',
+    array('mediapipe-drawing-utils', 'mediapipe-camera-utils'),
+    null,
+    true
+);
+
 // Enqueue our custom AR script
 
         wp_enqueue_script(
