@@ -340,7 +340,8 @@
 
     openARModal: function () {
       $modal = $('#apotheca-ar-modal');
-      $modal.fadeIn(300);
+      // Open as flex (not block) so the CSS flex-centering takes effect.
+      $modal.css({ display: 'flex', opacity: 0 }).animate({ opacity: 1 }, 300);
       $('body').addClass('apotheca-ar-active');
 
       // Always start with a clean slate when opening the modal so no "default"
