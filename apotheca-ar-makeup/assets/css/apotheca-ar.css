@@ -58,10 +58,18 @@
     z-index: 999999;
     overflow-y: auto;
     overflow-x: hidden;
+    /* iOS Safari: enable momentum scrolling inside a position:fixed overlay */
+    -webkit-overflow-scrolling: touch;
+    /* Prevent the page behind the modal from scrolling when the user reaches
+       the top / bottom of the modal scroll area */
+    overscroll-behavior: contain;
 }
 
+/* Body scroll is locked by JS inline styles (position:fixed + saved scroll offset)
+   for iOS Safari compatibility. This class is kept for any theme CSS that hooks
+   into it (e.g. hiding admin bars, etc.) but overflow is managed by JS. */
 body.apotheca-ar-active {
-    overflow: hidden;
+    /* overflow intentionally not set here — see openARModal() in apotheca-ar.js */
 }
 
 /* Modal Container */
@@ -462,7 +470,7 @@ body.apotheca-ar-active {
     color: #ffffff;
 }
 
-/* Responsive */
+/* Responsive — portrait mobile */
 @media (max-width: 968px) {
     /* iOS Safari can report 100vw wider than the visible viewport when the
        browser chrome appears/disappears. Use modal padding for gutters and
@@ -485,13 +493,18 @@ body.apotheca-ar-active {
     .apotheca-ar-container {
         width: 100%;
         max-width: none;
-        margin: auto;
+        margin: 0 auto;   /* no vertical auto-centering on mobile: start from top */
         padding: 12px;
         overflow: hidden;
     }
 
     .apotheca-ar-video-wrapper {
         aspect-ratio: 3/4;
+        /* Cap height so the controls panel below is always reachable on small
+           screens without needing to scroll past the entire camera area.
+           On a 667 px tall iPhone SE this keeps the camera at ~346 px, leaving
+           enough room for swatches and zoom to be visible immediately below. */
+        max-height: 52vh;
         max-width: 100%;
         width: 100%;
     }
@@ -500,5 +513,33 @@ body.apotheca-ar-active {
         max-width: 100%;
         width: 100% !important;
         height: 100% !important;
+    }
+
+    /* Controls panel: remove the desktop max-height cap so all swatches are
+       reachable via the modal's own scroll on mobile. */
+    .apotheca-ar-controls {
+        max-height: none;
+    }
+}
+
+/* Landscape mobile — switch back to two-column so camera is beside controls */
+@media (max-width: 968px) and (orientation: landscape) {
+    .apotheca-ar-content {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 12px;
+    }
+
+    .apotheca-ar-video-wrapper {
+        aspect-ratio: 4/3;
+        max-height: 80vh;
+        width: 100%;
+    }
+
+    /* Controls panel can scroll independently in landscape */
+    .apotheca-ar-controls {
+        max-height: 80vh;
+        overflow-y: auto;
+        -webkit-overflow-scrolling: touch;
     }
 }

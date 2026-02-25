@@ -375,6 +375,21 @@
       $modal = $('#apotheca-ar-modal');
       // Open as flex (not block) so the CSS flex-centering takes effect.
       $modal.css({ display: 'flex', opacity: 0 }).animate({ opacity: 1 }, 300);
+
+      // iOS-safe body scroll lock.
+      // Simply adding overflow:hidden to <body> is ignored by iOS Safari inside
+      // a position:fixed overlay, causing the page to scroll behind the modal
+      // AND preventing the modal itself from scrolling.
+      // Fix: record the current scroll offset, then fix the body at that position.
+      // The page content is visually frozen (no jump because the fixed offset
+      // matches the scroll position) and the modal's own overflow-y scroll works.
+      var scrollY = window.scrollY || window.pageYOffset || 0;
+      this._savedScrollY = scrollY;
+      var bodyEl = document.body;
+      bodyEl.style.position  = 'fixed';
+      bodyEl.style.top       = '-' + scrollY + 'px';
+      bodyEl.style.width     = '100%';
+      bodyEl.style.overflowY = 'scroll'; // keep scrollbar gutter visible on desktop
       $('body').addClass('apotheca-ar-active');
 
       // Always start with a clean slate when opening the modal so no "default"
@@ -446,8 +461,18 @@
 
     closeARModal: function () {
       $('#apotheca-ar-modal').fadeOut(300);
-      $('body').removeClass('apotheca-ar-active');
 
+      // Restore body scroll (reverse the iOS-safe lock applied in openARModal).
+      var scrollY = this._savedScrollY || 0;
+      var bodyEl = document.body;
+      bodyEl.style.position  = '';
+      bodyEl.style.top       = '';
+      bodyEl.style.width     = '';
+      bodyEl.style.overflowY = '';
+      window.scrollTo(0, scrollY);
+      this._savedScrollY = 0;
+
+      $('body').removeClass('apotheca-ar-active');
       this.stopMediaPipe();
     },
 
