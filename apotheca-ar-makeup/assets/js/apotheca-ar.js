@@ -1662,6 +1662,13 @@
       this._tracePath(octx, landmarks, REGION_POLYGONS.lips_outer, t);
       octx.fill();
 
+      // 1a. Gloss / lip-oil specular effect (product meta: gloss = true).
+      //     Drawn after the base fill so highlights sit on top of the colour,
+      //     but before the destination-out so the mouth opening clips them too.
+      if (lipsStyle.gloss) {
+        this._drawLipGloss(octx, landmarks, t, lipsOpacity);
+      }
+
       // 2. Punch out the inner mouth opening so open-mouth gap is transparent
       octx.globalCompositeOperation = 'destination-out';
       octx.globalAlpha = 1.0;
@@ -2169,6 +2176,133 @@
         mctx.lineWidth = fg.w;
         mctx.stroke();
       }
+    },
+
+    /**
+     * Draw a realistic lip-gloss / lip-oil specular effect onto the offscreen
+     * canvas that already has the lip base colour rendered.
+     *
+     * Must be called AFTER the outer lip fill but BEFORE the mouth-opening
+     * destination-out so the highlights are automatically clipped to the lip
+     * shape.
+     *
+     * Three layers:
+     *  1. Main lower-lip highlight  — wide horizontal ellipse, bright white,
+     *     positioned in the upper-third of the lower lip where glossy lips
+     *     catch the most direct light.
+     *  2. Cupid's bow twin highlights — two smaller ellipses on the raised
+     *     peaks of the upper lip, simulating dual specular points.
+     *  3. Diffuse wet-look sheen — very low-opacity glow across the full lip
+     *     area to suggest overall moisture away from the bright peaks.
+     *
+     * All layers use 'screen' composite so they brighten the underlying colour
+     * rather than opaquely covering it.
+     *
+     * @param {CanvasRenderingContext2D} octx        Off-screen DPR-scaled ctx.
+     * @param {Array}                   lms          468 MediaPipe face landmarks.
+     * @param {Object}                  t            Render transform.
+     * @param {number}                  lipsOpacity  0–1 base lip opacity.
+     */
+    _drawLipGloss: function (octx, lms, t, lipsOpacity) {
+      var self = this;
+
+      // --- Key landmark positions in CSS-px ---------------------------------
+      var leftCorner  = self._lmPx(lms[61],  t); // left lip corner
+      var rightCorner = self._lmPx(lms[291], t); // right lip corner
+      var upperCenter = self._lmPx(lms[0],   t); // top of upper lip (Cupid's bow midpoint)
+      var lowerOuter  = self._lmPx(lms[17],  t); // bottom of lower lip
+      var innerLower  = self._lmPx(lms[14],  t); // inner lower lip centre (near teeth)
+      var cupidLeft   = self._lmPx(lms[37],  t); // left Cupid's bow peak
+      var cupidRight  = self._lmPx(lms[267], t); // right Cupid's bow peak
+
+      var lipW    = rightCorner.x - leftCorner.x;
+      var lipMidX = (leftCorner.x + rightCorner.x) * 0.5;
+
+      // Lower-lip vertical extents
+      var lowerTop = innerLower.y;   // where the lower lip starts (teeth edge)
+      var lowerBot = lowerOuter.y;   // bottom of lower lip
+      var lowerH   = lowerBot - lowerTop;
+
+      // Full-lip vertical extents (for the diffuse sheen)
+      var fullLipTop  = upperCenter.y;
+      var fullLipMidY = (fullLipTop + lowerBot) * 0.5;
+
+      // Gloss intensity scales with lip opacity — more opaque = stronger shine.
+      var baseAlpha = Math.min(0.78, 0.45 + lipsOpacity * 0.33);
+
+      octx.save();
+      octx.globalAlpha              = 1.0;
+      octx.globalCompositeOperation = 'screen';
+
+      // ── 1. Main lower-lip specular highlight ──────────────────────────────
+      // Wide horizontal ellipse centred ~35 % below the top of the lower lip.
+      // This mimics the bright stripe seen on high-gloss / lip-oil finishes.
+      var hiX = lipMidX;
+      var hiY = lowerTop + lowerH * 0.35;
+      var hiW = lipW * 0.52;
+      var hiH = Math.max(lowerH * 0.28, hiW * 0.22);
+
+      var mainGrad = octx.createRadialGradient(0, 0, 0, 0, 0, 1);
+      mainGrad.addColorStop(0,    'rgba(255,255,255,' + baseAlpha.toFixed(3) + ')');
+      mainGrad.addColorStop(0.35, 'rgba(255,255,255,' + (baseAlpha * 0.60).toFixed(3) + ')');
+      mainGrad.addColorStop(0.70, 'rgba(255,255,255,' + (baseAlpha * 0.18).toFixed(3) + ')');
+      mainGrad.addColorStop(1,    'rgba(255,255,255,0)');
+
+      octx.save();
+      octx.translate(hiX, hiY);
+      octx.scale(hiW, hiH);
+      octx.beginPath();
+      octx.arc(0, 0, 1, 0, Math.PI * 2);
+      octx.fillStyle = mainGrad;
+      octx.fill();
+      octx.restore();
+
+      // ── 2. Cupid's bow twin highlights ────────────────────────────────────
+      // Two small ellipses on the raised peaks of the upper lip where the
+      // curved surface creates two distinct specular points.
+      var bowAlpha = baseAlpha * 0.50;
+      var bowW     = lipW * 0.13;
+      var bowH     = bowW * 0.50;
+
+      var bowGrad = octx.createRadialGradient(0, 0, 0, 0, 0, 1);
+      bowGrad.addColorStop(0,    'rgba(255,255,255,' + bowAlpha.toFixed(3) + ')');
+      bowGrad.addColorStop(0.45, 'rgba(255,255,255,' + (bowAlpha * 0.45).toFixed(3) + ')');
+      bowGrad.addColorStop(1,    'rgba(255,255,255,0)');
+
+      var bowPts = [cupidLeft, cupidRight];
+      for (var b = 0; b < bowPts.length; b++) {
+        octx.save();
+        octx.translate(bowPts[b].x, bowPts[b].y + bowH * 0.3);
+        octx.scale(bowW, bowH);
+        octx.beginPath();
+        octx.arc(0, 0, 1, 0, Math.PI * 2);
+        octx.fillStyle = bowGrad;
+        octx.fill();
+        octx.restore();
+      }
+
+      // ── 3. Diffuse wet-look sheen over the whole lip ──────────────────────
+      // Broad, very-low-opacity glow making the entire lip surface look moist
+      // even in areas away from the peak highlights.
+      var sheenAlpha = 0.14;
+      var sheenW     = lipW * 0.60;
+      var sheenH     = Math.abs(lowerBot - fullLipTop) * 0.50;
+
+      var sheenGrad = octx.createRadialGradient(0, 0, 0, 0, 0, 1);
+      sheenGrad.addColorStop(0,    'rgba(255,255,255,' + sheenAlpha.toFixed(3) + ')');
+      sheenGrad.addColorStop(0.55, 'rgba(255,255,255,' + (sheenAlpha * 0.5).toFixed(3) + ')');
+      sheenGrad.addColorStop(1,    'rgba(255,255,255,0)');
+
+      octx.save();
+      octx.translate(lipMidX, fullLipMidY);
+      octx.scale(sheenW, sheenH);
+      octx.beginPath();
+      octx.arc(0, 0, 1, 0, Math.PI * 2);
+      octx.fillStyle = sheenGrad;
+      octx.fill();
+      octx.restore();
+
+      octx.restore(); // restores globalAlpha and globalCompositeOperation
     },
 
     /**
