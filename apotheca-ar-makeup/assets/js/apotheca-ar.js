@@ -603,7 +603,14 @@
           canvasEl.height = Math.round(cssH * dpr);
 
           if (ctx2d) {
-            ctx2d.setTransform(dpr, 0, 0, dpr, 0, 0);
+            // Mirror mode: flip the canvas horizontally so the user sees their
+            // reflection rather than the raw (window-view) camera image.
+            // setTransform(-dpr, 0, 0, dpr, cssW*dpr, 0) maps CSS x → (cssW-x)
+            // in physical pixels, mirroring around the vertical centre line.
+            // All drawing (video frame, every makeup overlay) uses this transform
+            // automatically; landmark pixel coords need no adjustment because the
+            // coordinate system itself is flipped.
+            ctx2d.setTransform(-dpr, 0, 0, dpr, cssW * dpr, 0);
             ctx2d.imageSmoothingEnabled = true;
           }
 
