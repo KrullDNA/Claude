@@ -155,6 +155,9 @@ body.apotheca-ar-active {
     height: 100%;
     display: block;
     object-fit: cover;
+    /* Allow vertical swipe gestures on the canvas to scroll the modal on mobile
+       instead of being swallowed by the canvas touch handler. */
+    touch-action: pan-y;
 }
 
 #apotheca-ar-loading {
@@ -495,7 +498,10 @@ body.apotheca-ar-active {
         max-width: none;
         margin: 0 auto;   /* no vertical auto-centering on mobile: start from top */
         padding: 12px;
-        overflow: hidden;
+        /* Do NOT use overflow:hidden here — it creates a scroll boundary that
+           swallows iOS touch-scroll events and prevents the modal from scrolling.
+           Border-radius clips children without needing overflow:hidden. */
+        overflow: visible;
     }
 
     .apotheca-ar-video-wrapper {
