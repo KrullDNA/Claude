@@ -2035,26 +2035,25 @@
      * Restore the raw video frame over every detected hand after all makeup
      * layers have been composited onto the canvas.
      *
-     * For each hand:
-     *   1. Convert the 21 normalised landmarks to canvas CSS-pixel coords.
-     *   2. Compute the convex hull (a tight polygon around the whole hand).
-     *   3. Clip the canvas to that polygon and repaint the pre-makeup video
-     *      snapshot inside it, effectively erasing any makeup that was drawn
-     *      over the hand area.
+     * Shape quality
+     * ─────────────
+     * Instead of a convex hull (which fills between spread fingers), the hand
+     * shape is built anatomically:
+     *   • A filled polygon connects the wrist and all five MCP joints → palm.
+     *   • Each finger is a thick rounded stroke scaled to palm size → tubes.
+     *   • The mask is blurred 3 px before compositing for a feathered edge.
      *
-     * The snapshot (_videoSnap) is taken in onResults immediately after the
-     * video frame is drawn and before drawOverlays is called.
+     * Compositing strategy
+     * ────────────────────
+     *   1. Draw the hand anatomy onto a dedicated CSS-sized mask canvas.
+     *   2. Draw the pre-makeup snapshot onto a comp canvas.
+     *   3. destination-in with the blurred mask → only hand pixels survive.
+     *   4. source-over the result onto the main canvas.
      */
     _applyHandMask: function (ctx, multiHandLandmarks, t) {
       if (!multiHandLandmarks || !multiHandLandmarks.length) return;
       var snap = this._videoSnap;
       if (!snap) return;
-
-      var srcW  = (t && t.srcW)  || 0;
-      var srcH  = (t && t.srcH)  || 0;
-      var scale = (t && t.scale) || 1;
-      var dx    = (t && t.dx)    || 0;
-      var dy    = (t && t.dy)    || 0;
 
       var bufW = canvasEl.width;
       var bufH = canvasEl.height;
@@ -2062,33 +2061,113 @@
       var cssW = parseInt(canvasEl.style.width,  10) || Math.round(bufW / dpr);
       var cssH = parseInt(canvasEl.style.height, 10) || Math.round(bufH / dpr);
 
+      // Reuse / resize helper canvases to avoid per-frame allocation
+      if (!this._handMaskC || this._handMaskC.width !== cssW || this._handMaskC.height !== cssH) {
+        this._handMaskC = document.createElement('canvas');
+        this._handMaskC.width  = cssW;
+        this._handMaskC.height = cssH;
+        this._handCompC = document.createElement('canvas');
+        this._handCompC.width  = cssW;
+        this._handCompC.height = cssH;
+      }
+
+      // Step 1 – draw all hand shapes onto the mask canvas
+      var mctx = this._handMaskC.getContext('2d');
+      mctx.clearRect(0, 0, cssW, cssH);
       for (var h = 0; h < multiHandLandmarks.length; h++) {
-        var lms = multiHandLandmarks[h];
-        if (!lms || lms.length < 3) continue;
+        this._drawHandShape(mctx, multiHandLandmarks[h], t);
+      }
 
-        // Convert normalised landmarks → CSS canvas coords
-        var pts = [];
-        for (var i = 0; i < lms.length; i++) {
-          pts.push({
-            x: (lms[i].x * srcW * scale) + dx,
-            y: (lms[i].y * srcH * scale) + dy
-          });
+      // Step 2 – copy the video snapshot onto the comp canvas
+      var cctx = this._handCompC.getContext('2d');
+      cctx.clearRect(0, 0, cssW, cssH);
+      cctx.drawImage(snap, 0, 0, bufW, bufH, 0, 0, cssW, cssH);
+
+      // Step 3 – mask comp to hand shape; blur the mask for feathered edges
+      cctx.globalCompositeOperation = 'destination-in';
+      cctx.save();
+      cctx.filter = 'blur(3px)';
+      cctx.drawImage(this._handMaskC, 0, 0);
+      cctx.restore();
+      cctx.globalCompositeOperation = 'source-over';
+
+      // Step 4 – paint masked snapshot over the makeup on the main canvas
+      ctx.save();
+      ctx.globalCompositeOperation = 'source-over';
+      ctx.globalAlpha = 1.0;
+      ctx.drawImage(this._handCompC, 0, 0);
+      ctx.restore();
+    },
+
+    /**
+     * Paint the anatomical shape of one hand (white-filled) onto mctx.
+     *
+     * Palm   – filled polygon: wrist (0) → thumb CMC (1) → index MCP (5)
+     *          → middle MCP (9) → ring MCP (13) → pinky MCP (17) → close.
+     * Fingers – each drawn as a thick rounded stroke; lineWidth proportional
+     *           to palm size so the mask scales with camera distance.
+     *
+     * MediaPipe Hands landmark indices:
+     *   0 wrist · 1-4 thumb · 5-8 index · 9-12 middle · 13-16 ring · 17-20 pinky
+     */
+    _drawHandShape: function (mctx, lms, t) {
+      var srcW  = (t && t.srcW)  || 0;
+      var srcH  = (t && t.srcH)  || 0;
+      var scale = (t && t.scale) || 1;
+      var dx    = (t && t.dx)    || 0;
+      var dy    = (t && t.dy)    || 0;
+
+      var p = [];
+      for (var i = 0; i < lms.length; i++) {
+        p.push({
+          x: (lms[i].x * srcW * scale) + dx,
+          y: (lms[i].y * srcH * scale) + dy
+        });
+      }
+
+      // Palm size (wrist → middle MCP) as the proportional scale reference
+      var palmsz = Math.sqrt(
+        (p[9].x - p[0].x) * (p[9].x - p[0].x) +
+        (p[9].y - p[0].y) * (p[9].y - p[0].y)
+      );
+      if (palmsz < 4) return;
+
+      var fw = palmsz * 0.20; // base finger diameter (~20 % of palm)
+
+      mctx.fillStyle   = '#fff';
+      mctx.strokeStyle = '#fff';
+      mctx.lineCap     = 'round';
+      mctx.lineJoin    = 'round';
+
+      // Palm polygon
+      mctx.beginPath();
+      mctx.moveTo(p[0].x,  p[0].y);
+      mctx.lineTo(p[1].x,  p[1].y);
+      mctx.lineTo(p[5].x,  p[5].y);
+      mctx.lineTo(p[9].x,  p[9].y);
+      mctx.lineTo(p[13].x, p[13].y);
+      mctx.lineTo(p[17].x, p[17].y);
+      mctx.closePath();
+      mctx.fill();
+
+      // Finger tubes — widths approximate average human proportions
+      var fingers = [
+        { joints: [1, 2, 3, 4],     w: fw * 1.15 }, // thumb  (slightly wider)
+        { joints: [5, 6, 7, 8],     w: fw        }, // index
+        { joints: [9, 10, 11, 12],  w: fw * 1.05 }, // middle (widest)
+        { joints: [13, 14, 15, 16], w: fw        }, // ring
+        { joints: [17, 18, 19, 20], w: fw * 0.85 }, // pinky  (narrower)
+      ];
+
+      for (var f = 0; f < fingers.length; f++) {
+        var fg = fingers[f];
+        mctx.beginPath();
+        mctx.moveTo(p[fg.joints[0]].x, p[fg.joints[0]].y);
+        for (var j = 1; j < fg.joints.length; j++) {
+          mctx.lineTo(p[fg.joints[j]].x, p[fg.joints[j]].y);
         }
-
-        var hull = convexHull(pts);
-        if (hull.length < 3) continue;
-
-        // Clip to the hand hull and repaint the video snapshot inside it
-        ctx.save();
-        ctx.beginPath();
-        ctx.moveTo(hull[0].x, hull[0].y);
-        for (var j = 1; j < hull.length; j++) ctx.lineTo(hull[j].x, hull[j].y);
-        ctx.closePath();
-        ctx.clip();
-        ctx.globalCompositeOperation = 'source-over';
-        ctx.globalAlpha = 1.0;
-        ctx.drawImage(snap, 0, 0, bufW, bufH, 0, 0, cssW, cssH);
-        ctx.restore();
+        mctx.lineWidth = fg.w;
+        mctx.stroke();
       }
     },
 
