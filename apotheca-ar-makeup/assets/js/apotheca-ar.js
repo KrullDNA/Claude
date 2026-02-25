@@ -11,6 +11,39 @@
   let camera = null;
   let isRunning = false;
 
+  // Hand detection (optional — degrades gracefully if script not loaded)
+  let handsDetector = null;
+  let latestHandLandmarks = [];   // updated asynchronously by hands.onResults
+  let handFrameSkip = 0;          // counter used to throttle hand detection
+
+  // ── Convex hull (Andrew's monotone chain) ──────────────────────────────────
+  // Returns the minimal convex polygon enclosing the given [{x,y}] point set.
+  // Used to build a hand-shaped mask from the 21 MediaPipe hand landmarks.
+  function convexHull(pts) {
+    if (pts.length < 3) return pts.slice();
+    var sorted = pts.slice().sort(function (a, b) {
+      return a.x !== b.x ? a.x - b.x : a.y - b.y;
+    });
+    var cross = function (O, A, B) {
+      return (A.x - O.x) * (B.y - O.y) - (A.y - O.y) * (B.x - O.x);
+    };
+    var lower = [];
+    for (var i = 0; i < sorted.length; i++) {
+      while (lower.length >= 2 && cross(lower[lower.length - 2], lower[lower.length - 1], sorted[i]) <= 0)
+        lower.pop();
+      lower.push(sorted[i]);
+    }
+    var upper = [];
+    for (var j = sorted.length - 1; j >= 0; j--) {
+      while (upper.length >= 2 && cross(upper[upper.length - 2], upper[upper.length - 1], sorted[j]) <= 0)
+        upper.pop();
+      upper.push(sorted[j]);
+    }
+    lower.pop();
+    upper.pop();
+    return lower.concat(upper);
+  }
+
   // DOM refs (set on open)
   let $modal = null;
   let videoEl = null;
@@ -478,6 +511,24 @@
         });
       }
 
+      // Initialise hand detector once (degrades gracefully if CDN script absent)
+      if (!handsDetector && typeof Hands !== 'undefined') {
+        handsDetector = new Hands({
+          locateFile: function (file) {
+            return 'https://cdn.jsdelivr.net/npm/@mediapipe/hands/' + file;
+          }
+        });
+        handsDetector.setOptions({
+          maxNumHands: 2,
+          modelComplexity: 0,          // lite model — faster for real-time use
+          minDetectionConfidence: 0.7,
+          minTrackingConfidence: 0.5
+        });
+        handsDetector.onResults(function (results) {
+          latestHandLandmarks = results.multiHandLandmarks || [];
+        });
+      }
+
       // Start Camera once per open
       try {
         // Use higher ideal constraints to avoid blur on large canvases.
@@ -489,6 +540,11 @@
           onFrame: async () => {
             if (!isRunning) return;
             await faceMesh.send({ image: videoEl });
+            // Run hand detection on every other frame to keep the frame rate healthy.
+            // latestHandLandmarks is read by drawOverlays and stays valid between frames.
+            if (handsDetector && (++handFrameSkip % 2 === 0)) {
+              await handsDetector.send({ image: videoEl });
+            }
           },
           width: idealW,
           height: idealH
@@ -634,6 +690,10 @@
 
       camera = null;
 
+      // Clear stale hand data so no ghost mask appears next time the modal opens
+      latestHandLandmarks = [];
+      this._videoSnap = null;
+
       // Clear canvas
       try {
         if (ctx2d && canvasEl) {
@@ -687,6 +747,20 @@
       }
 
       ctx2d.restore();
+
+      // Snapshot the canvas as it looks with only the video frame drawn.
+      // drawOverlays will restore this under the hand hulls after compositing
+      // all makeup layers, so the real hand is visible instead of makeup.
+      if (latestHandLandmarks.length > 0) {
+        var snap = this._videoSnap;
+        if (!snap || snap.width !== canvasEl.width || snap.height !== canvasEl.height) {
+          snap = document.createElement('canvas');
+          snap.width  = canvasEl.width;
+          snap.height = canvasEl.height;
+          this._videoSnap = snap;
+        }
+        snap.getContext('2d').drawImage(canvasEl, 0, 0);
+      }
 
       const landmarks = results && results.multiFaceLandmarks && results.multiFaceLandmarks[0];
       if (!landmarks) return;
@@ -761,6 +835,14 @@
       const lipsSel = this.selectedRegions.lips || this.selectedRegions.upper_lip || this.selectedRegions.lower_lip;
       if (lipsSel) {
         this.drawLips(ctx, landmarks, lipsSel, t, this._getRegionStyle('lips'));
+      }
+
+      // ── Hand mask ────────────────────────────────────────────────────────────
+      // After all makeup layers are composited, restore the original video frame
+      // wherever hands are detected.  This prevents makeup from painting over
+      // the user's hand even while it is moving across the face.
+      if (latestHandLandmarks.length > 0 && this._videoSnap) {
+        this._applyHandMask(ctx, latestHandLandmarks, t);
       }
     },
 
@@ -1947,6 +2029,67 @@
         ctx.lineTo((p.x * srcW * scale) + dx, (p.y * srcH * scale) + dy);
       }
       ctx.closePath();
+    },
+
+    /**
+     * Restore the raw video frame over every detected hand after all makeup
+     * layers have been composited onto the canvas.
+     *
+     * For each hand:
+     *   1. Convert the 21 normalised landmarks to canvas CSS-pixel coords.
+     *   2. Compute the convex hull (a tight polygon around the whole hand).
+     *   3. Clip the canvas to that polygon and repaint the pre-makeup video
+     *      snapshot inside it, effectively erasing any makeup that was drawn
+     *      over the hand area.
+     *
+     * The snapshot (_videoSnap) is taken in onResults immediately after the
+     * video frame is drawn and before drawOverlays is called.
+     */
+    _applyHandMask: function (ctx, multiHandLandmarks, t) {
+      if (!multiHandLandmarks || !multiHandLandmarks.length) return;
+      var snap = this._videoSnap;
+      if (!snap) return;
+
+      var srcW  = (t && t.srcW)  || 0;
+      var srcH  = (t && t.srcH)  || 0;
+      var scale = (t && t.scale) || 1;
+      var dx    = (t && t.dx)    || 0;
+      var dy    = (t && t.dy)    || 0;
+
+      var bufW = canvasEl.width;
+      var bufH = canvasEl.height;
+      var dpr  = window.devicePixelRatio || 1;
+      var cssW = parseInt(canvasEl.style.width,  10) || Math.round(bufW / dpr);
+      var cssH = parseInt(canvasEl.style.height, 10) || Math.round(bufH / dpr);
+
+      for (var h = 0; h < multiHandLandmarks.length; h++) {
+        var lms = multiHandLandmarks[h];
+        if (!lms || lms.length < 3) continue;
+
+        // Convert normalised landmarks → CSS canvas coords
+        var pts = [];
+        for (var i = 0; i < lms.length; i++) {
+          pts.push({
+            x: (lms[i].x * srcW * scale) + dx,
+            y: (lms[i].y * srcH * scale) + dy
+          });
+        }
+
+        var hull = convexHull(pts);
+        if (hull.length < 3) continue;
+
+        // Clip to the hand hull and repaint the video snapshot inside it
+        ctx.save();
+        ctx.beginPath();
+        ctx.moveTo(hull[0].x, hull[0].y);
+        for (var j = 1; j < hull.length; j++) ctx.lineTo(hull[j].x, hull[j].y);
+        ctx.closePath();
+        ctx.clip();
+        ctx.globalCompositeOperation = 'source-over';
+        ctx.globalAlpha = 1.0;
+        ctx.drawImage(snap, 0, 0, bufW, bufH, 0, 0, cssW, cssH);
+        ctx.restore();
+      }
     },
 
     /**
