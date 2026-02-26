@@ -246,16 +246,16 @@ if (isset($product) && $product && is_a($product, 'WC_Product')) {
         }
     }
 
-    // Shimmer flag — JetEngine / Crocoblock switcher stores '1' when on.
-    // Only meaningful for lip-region products; JS checks lipsStyle.shimmer.
+    // Shimmer flag — JetEngine / Crocoblock switcher stores '1' when on, '0' when off.
+    // The Elementor widget defaults shimmer to ON; a product can explicitly disable it
+    // by setting this meta to a falsy value ('0', 'false', 'no').
     $gloss_raw = get_post_meta($product_id, 'shimmer', true);
-    if ($gloss_raw !== '' && $gloss_raw !== false && $gloss_raw !== null
-        && $gloss_raw !== '0' && $gloss_raw !== 'false' && $gloss_raw !== 'no'
-    ) {
+    if ($gloss_raw !== '' && $gloss_raw !== false && $gloss_raw !== null) {
         if (!isset($product_styles['lips'])) {
             $product_styles['lips'] = array();
         }
-        $product_styles['lips']['shimmer'] = true;
+        $gloss_on = !in_array((string) $gloss_raw, array('0', 'false', 'no'), true);
+        $product_styles['lips']['shimmer'] = $gloss_on;
     }
 
     // Shimmer / gloss opacity override (0-100 integer → 0-1 float).
