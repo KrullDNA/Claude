@@ -2353,51 +2353,54 @@
       octx.save();
       octx.globalAlpha = 1.0;
 
-      // 1. Main lower-lip highlight (large, moves with yaw)
-      // Covers ~38 % of lip width — the dominant glass reflection on a glossy
-      // lip.  Shifts left/right with face yaw so the movement is clear.
-      var hiX = lipMidX + hiShiftX;
-      var hiY = lowerTop + lowerH * 0.30;
-      var hiW = lipW  * 0.38 * poutScaleW;
-      var hiH = lowerH * 0.55 * poutScaleH;
-      bigHighlight(hiX, hiY, hiW, hiH, baseAlpha);
+      // 1. Main lower-lip highlight (small, right of centre, crisp)
+      // Positioned right-of-centre so it reads as a single distinct specular
+      // point.  Uses tightSpot (52 % radius falloff) for a clean, unfeathered
+      // catchlight.  Shifts with yaw.
+      var hiX = lipMidX + lipW * 0.14 + hiShiftX;
+      var hiY = lowerTop + lowerH * 0.32;
+      var hiW = lipW  * 0.17 * poutScaleW;
+      var hiH = lowerH * 0.30 * poutScaleH;
+      tightSpot(hiX, hiY, hiW, hiH, baseAlpha);
 
-      // 2. Hot-spot sparkle (tight, at peak of main highlight)
-      // Concentrated super-bright core inside the main — the "lip-oil" glass
-      // sparkle that makes gloss look glassy rather than satiny.
-      tightSpot(hiX, hiY - hiH * 0.06,
-                lipW * 0.14 * poutScaleW,
-                lowerH * 0.30 * poutScaleH,
-                Math.min(1, baseAlpha * 1.15));
+      // 2. Hot-spot sparkle (very tight core inside the main spot)
+      tightSpot(hiX, hiY,
+                lipW * 0.07 * poutScaleW,
+                lowerH * 0.16 * poutScaleH,
+                Math.min(1, baseAlpha * 1.2));
 
-      // 3. Secondary lower-lip reflection (medium, lower on the lip)
-      // Second catchlight on the lower portion — simulates the multi-point
-      // reflection you see on a curved glossy surface.
-      bigHighlight(lipMidX + hiShiftX * 0.50,
-                   lowerTop + lowerH * 0.68,
-                   lipW * 0.24 * poutScaleW,
-                   lowerH * 0.38 * poutScaleH,
-                   baseAlpha * 0.55);
+      // 3. Secondary lower reflection (small, also right-biased)
+      tightSpot(lipMidX + hiShiftX * 0.50 + lipW * 0.08,
+                lowerTop + lowerH * 0.70,
+                lipW * 0.11 * poutScaleW,
+                lowerH * 0.20 * poutScaleH,
+                baseAlpha * 0.38);
 
-      // 4. Cupid's bow twin highlights (face-angle attenuated)
-      // Visible ellipse on each arch peak.  Near-side full brightness,
-      // far-side fades with yaw (lit side vs shadow side of the face).
-      var bowBase = baseAlpha * 0.58;
-      var bowW    = lipW  * 0.16;
-      var bowH    = lowerH * 0.42;
-      var lScale  = Math.max(0.05, 1 - yawFrac * 1.6);
-      var rScale  = Math.max(0.05, 1 + yawFrac * 1.6);
-      var bowDefs = [
-        { pt: cupidLeft,  scale: lScale },
-        { pt: cupidRight, scale: rScale }
-      ];
-      for (var b = 0; b < bowDefs.length; b++) {
-        var bd     = bowDefs[b];
-        var bAlpha = bowBase * bd.scale;
-        if (bAlpha < 0.03) continue;
-        tightSpot(bd.pt.x + hiShiftX * 0.35,
-                  bd.pt.y + bowH * 0.20,
-                  bowW, bowH, bAlpha);
+      // 4. Cupid's bow highlights (asymmetric)
+      // Left bow: smaller, sits lower from the top edge, fades out quickly
+      //   as the face turns — disappears when the left side of the lip moves
+      //   away from camera (stronger yaw multiplier).
+      // Right bow: slightly larger, standard yaw attenuation.
+      var bowBase = baseAlpha * 0.62;
+      var lScale  = Math.max(0.01, Math.min(1.0, 1 - yawFrac * 2.8));
+      var rScale  = Math.max(0.05, Math.min(1.0, 1 + yawFrac * 1.6));
+
+      var lBAlpha = bowBase * lScale;
+      if (lBAlpha >= 0.03) {
+        tightSpot(cupidLeft.x  + hiShiftX * 0.35,
+                  cupidLeft.y  + lowerH * 0.40,
+                  lipW  * 0.09,
+                  lowerH * 0.26,
+                  lBAlpha);
+      }
+
+      var rBAlpha = bowBase * rScale;
+      if (rBAlpha >= 0.03) {
+        tightSpot(cupidRight.x + hiShiftX * 0.35,
+                  cupidRight.y + lowerH * 0.22,
+                  lipW  * 0.13,
+                  lowerH * 0.34,
+                  Math.min(1, rBAlpha));
       }
 
       // 5. Upper-lip centre glow
