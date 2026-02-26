@@ -2286,19 +2286,18 @@
         : Math.min(0.88, 0.52 + lipsOpacity * 0.36);
       baseAlpha = Math.min(1, baseAlpha * poutBright);
 
-      // --- Tight-gradient helper -------------------------------------------
-      // Draws a single gloss dot using source-over so it shows on any lip
-      // colour.  Gradient stops: 100 % at centre → 38 % at r=0.30 → 0 at
-      // r=0.45 → transparent from there out.  This is what makes the dot look
-      // crisp rather than feathered — the outer 55 % of the circle is clear.
-      function dot(cx, cy, rw, rh, alpha, blend) {
+      // --- Drawing helpers --------------------------------------------------
+      // bigHighlight: large ellipse, bright centre, clears at 78 % of radius.
+      // Gives a prominent visible gloss zone — like real product on lips.
+      function bigHighlight(cx, cy, rw, rh, alpha) {
         var g = octx.createRadialGradient(0, 0, 0, 0, 0, 1);
         g.addColorStop(0,    'rgba(255,255,255,' + alpha.toFixed(3) + ')');
-        g.addColorStop(0.30, 'rgba(255,255,255,' + (alpha * 0.38).toFixed(3) + ')');
-        g.addColorStop(0.45, 'rgba(255,255,255,0)');
+        g.addColorStop(0.32, 'rgba(255,255,255,' + (alpha * 0.62).toFixed(3) + ')');
+        g.addColorStop(0.58, 'rgba(255,255,255,' + (alpha * 0.20).toFixed(3) + ')');
+        g.addColorStop(0.78, 'rgba(255,255,255,0)');
         g.addColorStop(1,    'rgba(255,255,255,0)');
         octx.save();
-        octx.globalCompositeOperation = blend || 'source-over';
+        octx.globalCompositeOperation = 'source-over';
         octx.translate(cx, cy);
         octx.scale(rw, rh);
         octx.beginPath();
@@ -2308,119 +2307,143 @@
         octx.restore();
       }
 
+      // tightSpot: crisp dot, clears at 52 % of radius — the sparkle dot.
+      function tightSpot(cx, cy, rw, rh, alpha) {
+        var g = octx.createRadialGradient(0, 0, 0, 0, 0, 1);
+        g.addColorStop(0,    'rgba(255,255,255,' + alpha.toFixed(3) + ')');
+        g.addColorStop(0.32, 'rgba(255,255,255,' + (alpha * 0.42).toFixed(3) + ')');
+        g.addColorStop(0.52, 'rgba(255,255,255,0)');
+        g.addColorStop(1,    'rgba(255,255,255,0)');
+        octx.save();
+        octx.globalCompositeOperation = 'source-over';
+        octx.translate(cx, cy);
+        octx.scale(rw, rh);
+        octx.beginPath();
+        octx.arc(0, 0, 1, 0, Math.PI * 2);
+        octx.fillStyle = g;
+        octx.fill();
+        octx.restore();
+      }
+
+      var upperLipH = Math.max(1, lowerTop - upperCenter.y);
+
       octx.save();
       octx.globalAlpha = 1.0;
 
-      // ── 1. Main lower-lip specular dot (moves with yaw + pout) ────────────
-      // Upper-third of lower lip — the zone a real gloss reflection appears on
-      // a rounded surface under frontal/overhead light.  Travels ±30 % of
-      // lip-width as the face turns so the movement is unmistakable.
+      // 1. Main lower-lip highlight (large, moves with yaw)
+      // Covers ~38 % of lip width — the dominant glass reflection on a glossy
+      // lip.  Shifts left/right with face yaw so the movement is clear.
       var hiX = lipMidX + hiShiftX;
       var hiY = lowerTop + lowerH * 0.30;
-      var hiW = lipW  * 0.14 * poutScaleW;
-      var hiH = lowerH * 0.48 * poutScaleH;
-      dot(hiX, hiY, hiW, hiH, baseAlpha);
+      var hiW = lipW  * 0.38 * poutScaleW;
+      var hiH = lowerH * 0.55 * poutScaleH;
+      bigHighlight(hiX, hiY, hiW, hiH, baseAlpha);
 
-      // ── 2. Hot-spot core — tiny super-bright centre of dot 1 ──────────────
-      // Concentrates the peak brightness at the exact specular point, giving
-      // the glassy "lip-oil" sparkle.
-      dot(hiX, hiY - hiH * 0.05,
-          hiW * 0.38, hiH * 0.42,
-          Math.min(1, baseAlpha * 1.12));
+      // 2. Hot-spot sparkle (tight, at peak of main highlight)
+      // Concentrated super-bright core inside the main — the "lip-oil" glass
+      // sparkle that makes gloss look glassy rather than satiny.
+      tightSpot(hiX, hiY - hiH * 0.06,
+                lipW * 0.14 * poutScaleW,
+                lowerH * 0.30 * poutScaleH,
+                Math.min(1, baseAlpha * 1.15));
 
-      // ── 3. Secondary dot — smaller, lower, slightly toward lip centre ──────
-      // A second reflection below the main creates the illusion of a curved
-      // glossy surface with multiple catch-points.  Moves less than the main.
-      dot(lipMidX + hiShiftX * 0.50,
-          lowerTop + lowerH * 0.65,
-          hiW * 0.62, hiH * 0.50,
-          baseAlpha * 0.48);
+      // 3. Secondary lower-lip reflection (medium, lower on the lip)
+      // Second catchlight on the lower portion — simulates the multi-point
+      // reflection you see on a curved glossy surface.
+      bigHighlight(lipMidX + hiShiftX * 0.50,
+                   lowerTop + lowerH * 0.68,
+                   lipW * 0.24 * poutScaleW,
+                   lowerH * 0.38 * poutScaleH,
+                   baseAlpha * 0.55);
 
-      // ── 4. Cupid's bow twin highlights (face-angle attenuated) ────────────
-      // Near-side bow brightens, far-side fades with yaw.
-      var bowBase  = baseAlpha * 0.44;
-      var bowW     = lipW  * 0.09;
-      var bowH     = bowW  * 0.55;
-      var lScale   = Math.max(0.05, 1 - yawFrac * 1.6);
-      var rScale   = Math.max(0.05, 1 + yawFrac * 1.6);
-      var bowDefs  = [
+      // 4. Cupid's bow twin highlights (face-angle attenuated)
+      // Visible ellipse on each arch peak.  Near-side full brightness,
+      // far-side fades with yaw (lit side vs shadow side of the face).
+      var bowBase = baseAlpha * 0.58;
+      var bowW    = lipW  * 0.16;
+      var bowH    = lowerH * 0.42;
+      var lScale  = Math.max(0.05, 1 - yawFrac * 1.6);
+      var rScale  = Math.max(0.05, 1 + yawFrac * 1.6);
+      var bowDefs = [
         { pt: cupidLeft,  scale: lScale },
         { pt: cupidRight, scale: rScale }
       ];
       for (var b = 0; b < bowDefs.length; b++) {
         var bd     = bowDefs[b];
         var bAlpha = bowBase * bd.scale;
-        if (bAlpha < 0.02) continue;
-        dot(bd.pt.x + hiShiftX * 0.35,
-            bd.pt.y + bowH * 0.25,
-            bowW, bowH, bAlpha);
+        if (bAlpha < 0.03) continue;
+        tightSpot(bd.pt.x + hiShiftX * 0.35,
+                  bd.pt.y + bowH * 0.20,
+                  bowW, bowH, bAlpha);
       }
 
-      // ── 5. Philtrum ridge catch-light ──────────────────────────────────────
-      // Thin bright point between the Cupid's bow peaks; fades when turned.
-      var ridgeAlpha = baseAlpha * 0.20 * (1 - Math.abs(yawFrac) * 0.7);
-      if (ridgeAlpha > 0.02) {
-        dot(lipMidX + hiShiftX * 0.22,
-            upperCenter.y + (cupidLeft.y - upperCenter.y) * 0.40,
-            lipW * 0.09, Math.max(2, lowerH * 0.20),
-            ridgeAlpha);
+      // 5. Upper-lip centre glow
+      // Horizontal highlight between the bow peaks — gives the upper lip its
+      // own gloss zone.  Fades when turned (centre plane angles away from cam).
+      var upAlpha = baseAlpha * 0.42 * (1 - Math.abs(yawFrac) * 0.6);
+      if (upAlpha > 0.03) {
+        bigHighlight(lipMidX + hiShiftX * 0.22,
+                     fullLipTop + upperLipH * 0.55,
+                     lipW * 0.28,
+                     upperLipH * 0.50,
+                     upAlpha);
       }
 
-      // ── 6. Full-lip wet sheen (screen, very low opacity) ──────────────────
-      // A broad, near-invisible brightening keeps the whole lip surface
-      // looking moist without contributing to the feathered look.
+      // 6. Full-lip moisture sheen (source-over, very low opacity)
+      // Wide near-invisible layer covering the whole lip area.  At 9 % it is
+      // barely perceptible individually but ties all the specular spots
+      // together so the surface reads as uniformly wet/glossy.
       octx.save();
-      octx.globalCompositeOperation = 'screen';
+      octx.globalCompositeOperation = 'source-over';
       var sg = octx.createRadialGradient(0, 0, 0, 0, 0, 1);
-      sg.addColorStop(0,    'rgba(255,255,255,0.05)');
-      sg.addColorStop(0.55, 'rgba(255,255,255,0.02)');
+      sg.addColorStop(0,    'rgba(255,255,255,0.09)');
+      sg.addColorStop(0.55, 'rgba(255,255,255,0.03)');
+      sg.addColorStop(0.80, 'rgba(255,255,255,0)');
       sg.addColorStop(1,    'rgba(255,255,255,0)');
-      octx.translate(lipMidX + hiShiftX * 0.20, fullLipMidY);
-      octx.scale(lipW * 0.60, fullLipH * 0.48);
+      octx.translate(lipMidX, fullLipMidY);
+      octx.scale(lipW * 0.65, fullLipH * 0.52);
       octx.beginPath();
       octx.arc(0, 0, 1, 0, Math.PI * 2);
       octx.fillStyle = sg;
       octx.fill();
       octx.restore();
 
-      // ── 7. Rim lights (screen, low opacity) ────────────────────────────────
-      // Thin edge brightening at the upper + lower lip borders for a plump,
-      // three-dimensional appearance.
-      var rimAlpha = baseAlpha * 0.13;
-      octx.save();
-      octx.globalCompositeOperation = 'screen';
+      // 7. Rim lights (source-over so they show on dark colours)
+      // Thin brightening at the very top of the upper lip and bottom of the
+      // lower lip — makes the lips appear plump and three-dimensional.
+      var rimAlpha = baseAlpha * 0.18;
 
-      // Upper rim
+      octx.save();
+      octx.globalCompositeOperation = 'source-over';
+      octx.translate(lipMidX + hiShiftX * 0.18, upperCenter.y);
+      octx.scale(lipW * 0.65, Math.max(2, lowerH * 0.16));
+      octx.beginPath();
+      octx.arc(0, 0, 1, 0, Math.PI * 2);
       var urG = octx.createRadialGradient(0, -0.5, 0, 0, 0, 1);
       urG.addColorStop(0,   'rgba(255,255,255,' + rimAlpha.toFixed(3) + ')');
       urG.addColorStop(0.5, 'rgba(255,255,255,' + (rimAlpha * 0.30).toFixed(3) + ')');
+      urG.addColorStop(0.8, 'rgba(255,255,255,0)');
       urG.addColorStop(1,   'rgba(255,255,255,0)');
-      octx.save();
-      octx.translate(lipMidX + hiShiftX * 0.18, upperCenter.y);
-      octx.scale(lipW * 0.60, Math.max(2, lowerH * 0.14));
-      octx.beginPath();
-      octx.arc(0, 0, 1, 0, Math.PI * 2);
       octx.fillStyle = urG;
       octx.fill();
       octx.restore();
 
-      // Lower rim
+      octx.save();
+      octx.globalCompositeOperation = 'source-over';
+      octx.translate(lipMidX + hiShiftX * 0.18, lowerOuter.y);
+      octx.scale(lipW * 0.55, Math.max(2, lowerH * 0.14));
+      octx.beginPath();
+      octx.arc(0, 0, 1, 0, Math.PI * 2);
       var lrG = octx.createRadialGradient(0, 0.5, 0, 0, 0, 1);
       lrG.addColorStop(0,   'rgba(255,255,255,' + rimAlpha.toFixed(3) + ')');
       lrG.addColorStop(0.5, 'rgba(255,255,255,' + (rimAlpha * 0.30).toFixed(3) + ')');
+      lrG.addColorStop(0.8, 'rgba(255,255,255,0)');
       lrG.addColorStop(1,   'rgba(255,255,255,0)');
-      octx.save();
-      octx.translate(lipMidX + hiShiftX * 0.18, lowerOuter.y);
-      octx.scale(lipW * 0.50, Math.max(2, lowerH * 0.12));
-      octx.beginPath();
-      octx.arc(0, 0, 1, 0, Math.PI * 2);
       octx.fillStyle = lrG;
       octx.fill();
       octx.restore();
 
-      octx.restore(); // rim-lights screen restore
-
-      octx.restore(); // outer restore (globalAlpha + compositeOperation)
+      octx.restore(); // outer globalAlpha restore
     },
 
     /**
