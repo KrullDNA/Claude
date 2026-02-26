@@ -1698,7 +1698,7 @@
       //     Drawn after the base fill so highlights sit on top of the colour,
       //     but before the destination-out so the mouth opening clips them too.
       if (lipsStyle.gloss) {
-        this._drawLipGloss(octx, landmarks, t, lipsOpacity);
+        this._drawLipGloss(octx, landmarks, t, lipsOpacity, lipsStyle);
       }
 
       // 2. Punch out the inner mouth opening so open-mouth gap is transparent
@@ -2234,8 +2234,9 @@
      * @param {Array}                   lms          468 MediaPipe face landmarks.
      * @param {Object}                  t            Render transform.
      * @param {number}                  lipsOpacity  0–1 base lip opacity.
+     * @param {Object}                  style        Region style object (may contain glossOpacity 0–1).
      */
-    _drawLipGloss: function (octx, lms, t, lipsOpacity) {
+    _drawLipGloss: function (octx, lms, t, lipsOpacity, style) {
       var self = this;
 
       // --- Key landmark positions in CSS-px ---------------------------------
@@ -2259,8 +2260,12 @@
       var fullLipTop  = upperCenter.y;
       var fullLipMidY = (fullLipTop + lowerBot) * 0.5;
 
-      // Gloss intensity scales with lip opacity — more opaque = stronger shine.
-      var baseAlpha = Math.min(0.78, 0.45 + lipsOpacity * 0.33);
+      // Gloss intensity: use the product-level shimmer_opacity meta value when
+      // provided (style.glossOpacity, 0–1), otherwise auto-scale from lip opacity
+      // so the shine looks proportional to the weight of the lip colour.
+      var baseAlpha = (style && style.glossOpacity !== undefined)
+        ? Math.min(1, Math.max(0, style.glossOpacity))
+        : Math.min(0.78, 0.45 + lipsOpacity * 0.33);
 
       octx.save();
       octx.globalAlpha              = 1.0;

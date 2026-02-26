@@ -257,6 +257,21 @@ if (isset($product) && $product && is_a($product, 'WC_Product')) {
         }
         $product_styles['lips']['gloss'] = true;
     }
+
+    // Shimmer / gloss opacity override (0-100 integer → 0-1 float).
+    // When set, this value is used directly as the gloss highlight intensity
+    // in _drawLipGloss() instead of the default auto-scaling from lip opacity.
+    // Leave the field blank to use the built-in behaviour.
+    $shimmer_raw = get_post_meta($product_id, 'shimmer_opacity', true);
+    if ($shimmer_raw !== '' && $shimmer_raw !== false && $shimmer_raw !== null) {
+        $shimmer_val = (int) $shimmer_raw;
+        if ($shimmer_val >= 0 && $shimmer_val <= 100) {
+            if (!isset($product_styles['lips'])) {
+                $product_styles['lips'] = array();
+            }
+            $product_styles['lips']['glossOpacity'] = round($shimmer_val / 100, 4);
+        }
+    }
 }
 ?>
 <script>
