@@ -247,8 +247,6 @@ if (isset($product) && $product && is_a($product, 'WC_Product')) {
     }
 
     // Shimmer flag — JetEngine / Crocoblock switcher stores '1' when on, '0' when off.
-    // The Elementor widget defaults shimmer to ON; a product can explicitly disable it
-    // by setting this meta to a falsy value ('0', 'false', 'no').
     $gloss_raw = get_post_meta($product_id, 'shimmer', true);
     if ($gloss_raw !== '' && $gloss_raw !== false && $gloss_raw !== null) {
         if (!isset($product_styles['lips'])) {
@@ -258,10 +256,7 @@ if (isset($product) && $product && is_a($product, 'WC_Product')) {
         $product_styles['lips']['shimmer'] = $gloss_on;
     }
 
-    // Shimmer / gloss opacity override (0-100 integer → 0-1 float).
-    // When set, this value is used directly as the gloss highlight intensity
-    // in _drawLipGloss() instead of the default auto-scaling from lip opacity.
-    // Leave the field blank to use the built-in behaviour.
+    // Shimmer opacity override (0-100 integer → 0-1 float).
     $shimmer_raw = get_post_meta($product_id, 'shimmer_opacity', true);
     if ($shimmer_raw !== '' && $shimmer_raw !== false && $shimmer_raw !== null) {
         $shimmer_val = (int) $shimmer_raw;
@@ -270,6 +265,28 @@ if (isset($product) && $product && is_a($product, 'WC_Product')) {
                 $product_styles['lips'] = array();
             }
             $product_styles['lips']['glossOpacity'] = round($shimmer_val / 100, 4);
+        }
+    }
+
+    // Gloss flag — dedicated gloss effect toggle (works identically to shimmer).
+    $gloss_toggle_raw = get_post_meta($product_id, 'gloss', true);
+    if ($gloss_toggle_raw !== '' && $gloss_toggle_raw !== false && $gloss_toggle_raw !== null) {
+        if (!isset($product_styles['lips'])) {
+            $product_styles['lips'] = array();
+        }
+        $gloss_toggle_on = !in_array((string) $gloss_toggle_raw, array('0', 'false', 'no'), true);
+        $product_styles['lips']['gloss'] = $gloss_toggle_on;
+    }
+
+    // Gloss opacity override — per-product intensity for the gloss effect (0-100 integer → 0-1 float).
+    $gloss_opacity_raw = get_post_meta($product_id, 'gloss_opacity', true);
+    if ($gloss_opacity_raw !== '' && $gloss_opacity_raw !== false && $gloss_opacity_raw !== null) {
+        $gloss_opacity_val = (int) $gloss_opacity_raw;
+        if ($gloss_opacity_val >= 0 && $gloss_opacity_val <= 100) {
+            if (!isset($product_styles['lips'])) {
+                $product_styles['lips'] = array();
+            }
+            $product_styles['lips']['glossOpacity'] = round($gloss_opacity_val / 100, 4);
         }
     }
 }

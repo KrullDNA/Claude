@@ -1546,32 +1546,6 @@ class Apotheca_AR_Elementor_Widget extends \Elementor\Widget_Base {
             ]
         );
 
-        $this->add_control(
-            'lips_gloss',
-            [
-                'label'        => 'Gloss Effect',
-                'type'         => \Elementor\Controls_Manager::SWITCHER,
-                'label_on'     => 'On',
-                'label_off'    => 'Off',
-                'return_value' => 'yes',
-                'default'      => 'yes',
-                'description'  => 'Enable the specular gloss / lip-oil shine effect.',
-            ]
-        );
-
-        $this->add_control(
-            'lips_gloss_opacity',
-            [
-                'label'       => 'Gloss Intensity',
-                'type'        => \Elementor\Controls_Manager::SLIDER,
-                'size_units'  => ['%'],
-                'range'       => ['%' => ['min' => 0, 'max' => 100, 'step' => 1]],
-                'default'     => ['unit' => '%', 'size' => 65],
-                'description' => 'Brightness of the gloss highlights (0 = subtle, 100 = maximum shine).',
-                'condition'   => ['lips_gloss' => 'yes'],
-            ]
-        );
-
         $this->end_controls_section();
 
         // --- Eyeshadow Region Style ---
@@ -1875,9 +1849,7 @@ class Apotheca_AR_Elementor_Widget extends \Elementor\Widget_Base {
             'lips' => [
                 'opacity'      => floatval( isset( $settings['lips_opacity']['size'] )       ? $settings['lips_opacity']['size']       : 70  ) / 100,
                 'feather'      => floatval( isset( $settings['lips_feather']['size'] )       ? $settings['lips_feather']['size']       : 0   ),
-                'blendMode'    => !empty( $settings['lips_blend_mode'] )       ? $settings['lips_blend_mode']       : 'source-over',
-                'shimmer'      => ( !isset( $settings['lips_gloss'] ) || $settings['lips_gloss'] === 'yes' ),
-                'glossOpacity' => floatval( isset( $settings['lips_gloss_opacity']['size'] ) ? $settings['lips_gloss_opacity']['size'] : 65  ) / 100,
+                'blendMode' => !empty( $settings['lips_blend_mode'] )       ? $settings['lips_blend_mode']       : 'source-over',
             ],
             'eyeshadow' => [
                 'opacity'   => floatval( isset( $settings['eyeshadow_opacity']['size'] )  ? $settings['eyeshadow_opacity']['size']  : 100 ) / 100,

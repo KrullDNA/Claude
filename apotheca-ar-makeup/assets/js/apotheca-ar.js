@@ -1694,10 +1694,12 @@
       this._tracePath(octx, landmarks, REGION_POLYGONS.lips_outer, t);
       octx.fill();
 
-      // 1a. Shimmer specular effect (product meta: shimmer = true).
-      //     Drawn after the base fill so highlights sit on top of the colour,
-      //     but before the destination-out so the mouth opening clips them too.
-      if (lipsStyle.shimmer) {
+      // 1a. Gloss / shimmer specular effect.
+      //     Triggered by either the 'gloss' meta field (new) or the legacy
+      //     'shimmer' meta field.  Drawn after the base fill so highlights sit
+      //     on top of the colour, but before the destination-out so the mouth
+      //     opening clips them too.
+      if (lipsStyle.gloss || lipsStyle.shimmer) {
         this._drawLipGloss(octx, landmarks, t, lipsOpacity, lipsStyle);
       }
 
