@@ -1699,6 +1699,9 @@
       //     'shimmer' meta field.  Drawn after the base fill so highlights sit
       //     on top of the colour, but before the destination-out so the mouth
       //     opening clips them too.
+      // DEBUG: log whether gloss branch is entered and what style contains
+      console.log('[LipGloss] lipsStyle=', JSON.stringify(lipsStyle),
+                  'gloss=', lipsStyle.gloss, 'shimmer=', lipsStyle.shimmer);
       if (lipsStyle.gloss || lipsStyle.shimmer) {
         this._drawLipGloss(octx, landmarks, t, lipsOpacity, lipsStyle);
       }
@@ -2249,6 +2252,14 @@
     _drawLipGloss: function (octx, lms, t, lipsOpacity, style) {
       var self = this;
 
+      // ── DEBUG (remove after confirming) ───────────────────────────────────
+      if (!window._glossDebugLogged) {
+        window._glossDebugLogged = true;
+        console.log('[LipGloss] function called. style=', JSON.stringify(style),
+                    'lipsOpacity=', lipsOpacity);
+      }
+      // ── END DEBUG ─────────────────────────────────────────────────────────
+
       // --- Key landmarks ----------------------------------------------------
       var leftCorner  = self._lmPx(lms[61],  t);
       var rightCorner = self._lmPx(lms[291], t);
@@ -2285,6 +2296,22 @@
         ? Math.min(1, Math.max(0, style.glossOpacity))
         : Math.min(0.88, 0.52 + lipsOpacity * 0.36);
       baseAlpha = Math.min(1, baseAlpha * poutBright);
+
+      // ── DEBUG ─────────────────────────────────────────────────────────────
+      if (!window._glossDebugLogged2) {
+        window._glossDebugLogged2 = true;
+        console.log('[LipGloss] lipW=', lipW.toFixed(1), 'lowerH=', lowerH.toFixed(1),
+                    'baseAlpha=', baseAlpha.toFixed(3),
+                    'hiW(main)=', (lipW * 0.38).toFixed(1) + 'px');
+        // Draw a bright magenta rectangle so we can confirm canvas is live
+        octx.save();
+        octx.globalCompositeOperation = 'source-over';
+        octx.globalAlpha = 0.8;
+        octx.fillStyle = 'magenta';
+        octx.fillRect(lipMidX - 20, lowerTop, 40, lowerH);
+        octx.restore();
+      }
+      // ── END DEBUG ─────────────────────────────────────────────────────────
 
       // --- Drawing helpers --------------------------------------------------
       // bigHighlight: large ellipse, bright centre, clears at 78 % of radius.
