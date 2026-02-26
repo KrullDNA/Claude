@@ -2272,6 +2272,13 @@
     _drawLipGloss: function (octx, lms, t, lipsOpacity, style) {
       var self = this;
 
+      // Shimmer is a distinct look — scattered pearlescent highlights rather
+      // than a concentrated gloss spot.  Route to separate renderer.
+      if (style.shimmer && !style.gloss) {
+        self._drawLipShimmer(octx, lms, t, lipsOpacity, style);
+        return;
+      }
+
       // --- Key landmarks ----------------------------------------------------
       var leftCorner  = self._lmPx(lms[61],  t);
       var rightCorner = self._lmPx(lms[291], t);
@@ -2353,11 +2360,10 @@
       octx.save();
       octx.globalAlpha = 1.0;
 
-      // 1. Main lower-lip highlight (small, right of centre, crisp)
-      // Positioned right-of-centre so it reads as a single distinct specular
-      // point.  Uses tightSpot (52 % radius falloff) for a clean, unfeathered
-      // catchlight.  Shifts with yaw.
-      var hiX = lipMidX + lipW * 0.14 + hiShiftX;
+      // 1. Main lower-lip highlight (right side of lip, crisp)
+      // Sits clearly on the right portion of the lower lip — the dominant
+      // glass catchlight.  Shifts further right/left with face yaw.
+      var hiX = lipMidX + lipW * 0.32 + hiShiftX;
       var hiY = lowerTop + lowerH * 0.32;
       var hiW = lipW  * 0.17 * poutScaleW;
       var hiH = lowerH * 0.30 * poutScaleH;
@@ -2376,15 +2382,12 @@
                 lowerH * 0.20 * poutScaleH,
                 baseAlpha * 0.38);
 
-      // 4. Cupid's bow highlights (asymmetric)
-      // Left bow: smaller, sits lower from the top edge, fades out quickly
-      //   as the face turns — disappears when the left side of the lip moves
-      //   away from camera (stronger yaw multiplier).
-      // Right bow: slightly larger, standard yaw attenuation.
+      // 4. Left Cupid's bow highlight only
+      // Sits slightly below the bow peak, smaller than a typical gloss spot,
+      // and fades quickly with yaw so it disappears when the face turns right
+      // and the left side of the lips moves away from camera.
       var bowBase = baseAlpha * 0.62;
       var lScale  = Math.max(0.01, Math.min(1.0, 1 - yawFrac * 2.8));
-      var rScale  = Math.max(0.05, Math.min(1.0, 1 + yawFrac * 1.6));
-
       var lBAlpha = bowBase * lScale;
       if (lBAlpha >= 0.03) {
         tightSpot(cupidLeft.x  + hiShiftX * 0.35,
@@ -2394,28 +2397,7 @@
                   lBAlpha);
       }
 
-      var rBAlpha = bowBase * rScale;
-      if (rBAlpha >= 0.03) {
-        tightSpot(cupidRight.x + hiShiftX * 0.35,
-                  cupidRight.y + lowerH * 0.22,
-                  lipW  * 0.13,
-                  lowerH * 0.34,
-                  Math.min(1, rBAlpha));
-      }
-
-      // 5. Upper-lip centre glow
-      // Horizontal highlight between the bow peaks — gives the upper lip its
-      // own gloss zone.  Fades when turned (centre plane angles away from cam).
-      var upAlpha = baseAlpha * 0.42 * (1 - Math.abs(yawFrac) * 0.6);
-      if (upAlpha > 0.03) {
-        bigHighlight(lipMidX + hiShiftX * 0.22,
-                     fullLipTop + upperLipH * 0.55,
-                     lipW * 0.28,
-                     upperLipH * 0.50,
-                     upAlpha);
-      }
-
-      // 6. Full-lip moisture sheen (source-over, very low opacity)
+      // 5. Full-lip moisture sheen (source-over, very low opacity)
       // Wide near-invisible layer covering the whole lip area.  At 9 % it is
       // barely perceptible individually but ties all the specular spots
       // together so the surface reads as uniformly wet/glossy.
@@ -2470,6 +2452,139 @@
       octx.restore();
 
       octx.restore(); // outer globalAlpha restore
+    },
+
+    /**
+     * Draw a pearlescent shimmer effect on the lips.
+     *
+     * Shimmer is distinct from gloss: instead of one concentrated wet
+     * catchlight the surface is covered with scattered soft highlights
+     * that together read as a fine metallic/pearl powder on the lips.
+     *
+     * Layout:
+     *  1. Broad diffuse base sheen — low-opacity radial covering the lower lip.
+     *  2. Five small scattered dots across the lower lip.
+     *  3. Three small scattered dots across the upper lip.
+     *  4. Rim lights (top and bottom edge brightening for plumpness).
+     *
+     * @param {CanvasRenderingContext2D} octx        Off-screen DPR-scaled ctx.
+     * @param {Array}                   lms          MediaPipe landmark array.
+     * @param {Object}                  t            Render transform.
+     * @param {number}                  lipsOpacity  0–1 base lip opacity.
+     * @param {Object}                  style        Region style object.
+     */
+    _drawLipShimmer: function (octx, lms, t, lipsOpacity, style) {
+      var self = this;
+
+      var leftCorner  = self._lmPx(lms[61],  t);
+      var rightCorner = self._lmPx(lms[291], t);
+      var upperCenter = self._lmPx(lms[0],   t);
+      var lowerOuter  = self._lmPx(lms[17],  t);
+      var innerLower  = self._lmPx(lms[14],  t);
+
+      var lipW        = rightCorner.x - leftCorner.x;
+      var lipMidX     = (leftCorner.x + rightCorner.x) * 0.5;
+      var lowerTop    = innerLower.y;
+      var lowerBot    = lowerOuter.y;
+      var lowerH      = Math.max(1, lowerBot - lowerTop);
+      var fullLipTop  = upperCenter.y;
+      var fullLipH    = Math.max(1, lowerBot - fullLipTop);
+      var fullLipMidY = fullLipTop + fullLipH * 0.5;
+      var upperLipH   = Math.max(1, lowerTop - upperCenter.y);
+
+      var baseAlpha = (style && style.glossOpacity !== undefined)
+        ? Math.min(1, Math.max(0, style.glossOpacity))
+        : Math.min(0.80, 0.45 + lipsOpacity * 0.35);
+
+      // Helper: soft shimmer dot (falls off at 65 % of radius — softer than
+      // tightSpot but still distinct; gives the scattered-pearl look).
+      function shimDot(cx, cy, rw, rh, alpha) {
+        var g = octx.createRadialGradient(0, 0, 0, 0, 0, 1);
+        g.addColorStop(0,    'rgba(255,255,255,' + alpha.toFixed(3) + ')');
+        g.addColorStop(0.35, 'rgba(255,255,255,' + (alpha * 0.55).toFixed(3) + ')');
+        g.addColorStop(0.65, 'rgba(255,255,255,0)');
+        g.addColorStop(1,    'rgba(255,255,255,0)');
+        octx.save();
+        octx.globalCompositeOperation = 'source-over';
+        octx.translate(cx, cy);
+        octx.scale(rw, rh);
+        octx.beginPath();
+        octx.arc(0, 0, 1, 0, Math.PI * 2);
+        octx.fillStyle = g;
+        octx.fill();
+        octx.restore();
+      }
+
+      octx.save();
+      octx.globalAlpha = 1.0;
+
+      // 1. Broad diffuse base sheen across the lower lip
+      var sg = octx.createRadialGradient(0, 0, 0, 0, 0, 1);
+      sg.addColorStop(0,    'rgba(255,255,255,' + (baseAlpha * 0.18).toFixed(3) + ')');
+      sg.addColorStop(0.55, 'rgba(255,255,255,' + (baseAlpha * 0.06).toFixed(3) + ')');
+      sg.addColorStop(0.80, 'rgba(255,255,255,0)');
+      sg.addColorStop(1,    'rgba(255,255,255,0)');
+      octx.save();
+      octx.globalCompositeOperation = 'source-over';
+      octx.translate(lipMidX, lowerTop + lowerH * 0.45);
+      octx.scale(lipW * 0.70, lowerH * 0.65);
+      octx.beginPath();
+      octx.arc(0, 0, 1, 0, Math.PI * 2);
+      octx.fillStyle = sg;
+      octx.fill();
+      octx.restore();
+
+      // 2. Scattered shimmer dots — lower lip (5 dots, varying size/alpha)
+      var dw = lipW  * 0.09;
+      var dh = lowerH * 0.28;
+      var da = baseAlpha * 0.60;
+      shimDot(lipMidX - lipW * 0.26, lowerTop + lowerH * 0.36, dw,        dh,        da * 0.65);
+      shimDot(lipMidX - lipW * 0.08, lowerTop + lowerH * 0.28, dw * 1.10, dh * 1.0,  da);
+      shimDot(lipMidX + lipW * 0.09, lowerTop + lowerH * 0.32, dw * 0.90, dh * 0.85, da * 0.85);
+      shimDot(lipMidX + lipW * 0.25, lowerTop + lowerH * 0.40, dw * 0.80, dh * 0.80, da * 0.60);
+      shimDot(lipMidX + lipW * 0.04, lowerTop + lowerH * 0.68, dw * 0.65, dh * 0.65, da * 0.40);
+
+      // 3. Scattered shimmer dots — upper lip (3 dots)
+      var uw = lipW  * 0.08;
+      var uh = upperLipH * 0.40;
+      shimDot(lipMidX - lipW * 0.16, fullLipTop + upperLipH * 0.55, uw * 0.90, uh, da * 0.55);
+      shimDot(lipMidX + lipW * 0.04, fullLipTop + upperLipH * 0.50, uw * 0.75, uh, da * 0.45);
+      shimDot(lipMidX + lipW * 0.22, fullLipTop + upperLipH * 0.58, uw * 0.65, uh, da * 0.40);
+
+      // 4. Rim lights (top and bottom edge brightening)
+      var rimAlpha = baseAlpha * 0.20;
+
+      octx.save();
+      octx.globalCompositeOperation = 'source-over';
+      octx.translate(lipMidX, upperCenter.y);
+      octx.scale(lipW * 0.65, Math.max(2, lowerH * 0.16));
+      octx.beginPath();
+      octx.arc(0, 0, 1, 0, Math.PI * 2);
+      var urG = octx.createRadialGradient(0, -0.5, 0, 0, 0, 1);
+      urG.addColorStop(0,   'rgba(255,255,255,' + rimAlpha.toFixed(3) + ')');
+      urG.addColorStop(0.5, 'rgba(255,255,255,' + (rimAlpha * 0.30).toFixed(3) + ')');
+      urG.addColorStop(0.8, 'rgba(255,255,255,0)');
+      urG.addColorStop(1,   'rgba(255,255,255,0)');
+      octx.fillStyle = urG;
+      octx.fill();
+      octx.restore();
+
+      octx.save();
+      octx.globalCompositeOperation = 'source-over';
+      octx.translate(lipMidX, lowerOuter.y);
+      octx.scale(lipW * 0.55, Math.max(2, lowerH * 0.14));
+      octx.beginPath();
+      octx.arc(0, 0, 1, 0, Math.PI * 2);
+      var lrG = octx.createRadialGradient(0, 0.5, 0, 0, 0, 1);
+      lrG.addColorStop(0,   'rgba(255,255,255,' + rimAlpha.toFixed(3) + ')');
+      lrG.addColorStop(0.5, 'rgba(255,255,255,' + (rimAlpha * 0.30).toFixed(3) + ')');
+      lrG.addColorStop(0.8, 'rgba(255,255,255,0)');
+      lrG.addColorStop(1,   'rgba(255,255,255,0)');
+      octx.fillStyle = lrG;
+      octx.fill();
+      octx.restore();
+
+      octx.restore();
     },
 
     /**
