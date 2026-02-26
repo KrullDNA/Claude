@@ -1701,6 +1701,13 @@
         this._drawLipGloss(octx, landmarks, t, lipsOpacity, lipsStyle);
       }
 
+      // 1b. Gloss treatment (product meta: gloss = true).
+      //     Single concentrated specular oval that tracks head angle, giving a
+      //     realistic wet lip-oil look distinct from the diffuse shimmer above.
+      if (lipsStyle.gloss) {
+        this._drawLipGlossEffect(octx, landmarks, t, lipsOpacity, lipsStyle);
+      }
+
       // 2. Punch out the inner mouth opening so open-mouth gap is transparent
       octx.globalCompositeOperation = 'destination-out';
       octx.globalAlpha = 1.0;
@@ -2506,6 +2513,126 @@
       lowerRimGrad.addColorStop(0.6, 'rgba(255,255,255,' + (rimAlpha * 0.35).toFixed(3) + ')');
       lowerRimGrad.addColorStop(1,   'rgba(255,255,255,0)');
       octx.fillStyle = lowerRimGrad;
+      octx.fill();
+      octx.restore();
+
+      octx.restore(); // restores globalAlpha and globalCompositeOperation
+    },
+
+    /**
+     * Draw a realistic lip-gloss specular effect — a single concentrated wet
+     * highlight that tracks head rotation, distinct from the broad shimmer.
+     *
+     * Three layers:
+     *  1. Primary specular oval  — tight bright ellipse on the lower lip,
+     *     position shifts laterally based on estimated face yaw so it always
+     *     sits on the part of the lip most facing the viewer.
+     *  2. Diffuse wet sheen     — very low-opacity broad glow across the
+     *     lower lip suggesting overall moisture between the peak highlights.
+     *  3. Upper-lip catch-light — small faint highlight at the center of the
+     *     upper lip, subtler than the lower to match real glossy-lip reference.
+     *
+     * @param {CanvasRenderingContext2D} octx        Off-screen DPR-scaled ctx.
+     * @param {Array}                   lms          468 MediaPipe face landmarks.
+     * @param {Object}                  t            Render transform.
+     * @param {number}                  lipsOpacity  0–1 base lip opacity.
+     * @param {Object}                  style        Region style (glossOpacity 0–1).
+     */
+    _drawLipGlossEffect: function (octx, lms, t, lipsOpacity, style) {
+      var self = this;
+
+      // --- Key landmark positions -------------------------------------------
+      var leftCorner  = self._lmPx(lms[61],  t);
+      var rightCorner = self._lmPx(lms[291], t);
+      var upperCenter = self._lmPx(lms[0],   t);
+      var lowerOuter  = self._lmPx(lms[17],  t);
+      var innerLower  = self._lmPx(lms[14],  t);
+      var noseTip     = self._lmPx(lms[4],   t); // for yaw estimation
+
+      var lipW    = rightCorner.x - leftCorner.x;
+      var lipMidX = (leftCorner.x + rightCorner.x) * 0.5;
+      var lowerTop = innerLower.y;
+      var lowerBot = lowerOuter.y;
+      var lowerH   = lowerBot - lowerTop;
+
+      // --- Yaw-driven lateral offset ----------------------------------------
+      // The nose tip drifts left/right relative to the lip centre as the head
+      // turns.  We use that offset to slide the highlight toward whichever side
+      // of the lower lip is most convex from the viewer's perspective.
+      var yawOffset = (noseTip.x - lipMidX) / lipW; // –0.5 … +0.5 typical range
+      var hiOffsetX = yawOffset * lipW * 0.28;
+
+      // --- Intensity base ---------------------------------------------------
+      var baseAlpha = (style && style.glossOpacity !== undefined)
+        ? Math.min(1, Math.max(0, style.glossOpacity))
+        : Math.min(0.88, 0.58 + lipsOpacity * 0.30);
+
+      octx.save();
+      octx.globalAlpha              = 1.0;
+      octx.globalCompositeOperation = 'screen';
+
+      // ── 1. Primary specular highlight on lower lip ─────────────────────────
+      // Tight oval (~20 % lip width), upper-third of lower lip, shifted by yaw.
+      var hiX = lipMidX + hiOffsetX;
+      var hiY = lowerTop + lowerH * 0.30;
+      var hiW = lipW * 0.20;
+      var hiH = hiW * 0.55;
+
+      var mainGrad = octx.createRadialGradient(0, 0, 0, 0, 0, 1);
+      mainGrad.addColorStop(0,    'rgba(255,255,255,' + baseAlpha.toFixed(3) + ')');
+      mainGrad.addColorStop(0.28, 'rgba(255,255,255,' + (baseAlpha * 0.72).toFixed(3) + ')');
+      mainGrad.addColorStop(0.60, 'rgba(255,255,255,' + (baseAlpha * 0.18).toFixed(3) + ')');
+      mainGrad.addColorStop(1,    'rgba(255,255,255,0)');
+
+      octx.save();
+      octx.translate(hiX, hiY);
+      octx.scale(hiW, hiH);
+      octx.beginPath();
+      octx.arc(0, 0, 1, 0, Math.PI * 2);
+      octx.fillStyle = mainGrad;
+      octx.fill();
+      octx.restore();
+
+      // ── 2. Diffuse wet sheen across lower lip ──────────────────────────────
+      // Broad, very-low-opacity ellipse suggesting overall surface moisture.
+      var sheenAlpha = baseAlpha * 0.11;
+      var sheenW     = lipW * 0.56;
+      var sheenH     = lowerH * 0.52;
+
+      var sheenGrad = octx.createRadialGradient(0, 0, 0, 0, 0, 1);
+      sheenGrad.addColorStop(0,    'rgba(255,255,255,' + sheenAlpha.toFixed(3) + ')');
+      sheenGrad.addColorStop(0.55, 'rgba(255,255,255,' + (sheenAlpha * 0.45).toFixed(3) + ')');
+      sheenGrad.addColorStop(1,    'rgba(255,255,255,0)');
+
+      octx.save();
+      octx.translate(lipMidX, lowerTop + lowerH * 0.50);
+      octx.scale(sheenW, sheenH);
+      octx.beginPath();
+      octx.arc(0, 0, 1, 0, Math.PI * 2);
+      octx.fillStyle = sheenGrad;
+      octx.fill();
+      octx.restore();
+
+      // ── 3. Upper-lip catch-light ───────────────────────────────────────────
+      // Small, faint oval at the center of the upper lip — real gloss photos
+      // show a gentle secondary reflection here, much subtler than the lower.
+      var upperH     = innerLower.y - upperCenter.y;
+      var catchAlpha = baseAlpha * 0.28;
+      var catchW     = lipW * 0.13;
+      var catchH     = Math.max(upperH * 0.30, catchW * 0.40);
+      var catchY     = upperCenter.y + upperH * 0.45;
+
+      var catchGrad = octx.createRadialGradient(0, 0, 0, 0, 0, 1);
+      catchGrad.addColorStop(0,    'rgba(255,255,255,' + catchAlpha.toFixed(3) + ')');
+      catchGrad.addColorStop(0.50, 'rgba(255,255,255,' + (catchAlpha * 0.40).toFixed(3) + ')');
+      catchGrad.addColorStop(1,    'rgba(255,255,255,0)');
+
+      octx.save();
+      octx.translate(lipMidX + hiOffsetX * 0.45, catchY);
+      octx.scale(catchW, catchH);
+      octx.beginPath();
+      octx.arc(0, 0, 1, 0, Math.PI * 2);
+      octx.fillStyle = catchGrad;
       octx.fill();
       octx.restore();
 

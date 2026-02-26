@@ -258,6 +258,18 @@ if (isset($product) && $product && is_a($product, 'WC_Product')) {
         $product_styles['lips']['shimmer'] = true;
     }
 
+    // Gloss flag — JetEngine / Crocoblock switcher stores '1' when on.
+    // Triggers the concentrated specular oval treatment (_drawLipGlossEffect).
+    $glossflag_raw = get_post_meta($product_id, 'gloss', true);
+    if ($glossflag_raw !== '' && $glossflag_raw !== false && $glossflag_raw !== null
+        && $glossflag_raw !== '0' && $glossflag_raw !== 'false' && $glossflag_raw !== 'no'
+    ) {
+        if (!isset($product_styles['lips'])) {
+            $product_styles['lips'] = array();
+        }
+        $product_styles['lips']['gloss'] = true;
+    }
+
     // Shimmer / gloss opacity override (0-100 integer → 0-1 float).
     // When set, this value is used directly as the gloss highlight intensity
     // in _drawLipGloss() instead of the default auto-scaling from lip opacity.
