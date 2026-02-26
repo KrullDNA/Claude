@@ -1695,15 +1695,23 @@
       octx.fill();
 
       // 1a. Gloss / shimmer specular effect.
-      //     Triggered by either the 'gloss' meta field (new) or the legacy
-      //     'shimmer' meta field.  Drawn after the base fill so highlights sit
-      //     on top of the colour, but before the destination-out so the mouth
-      //     opening clips them too.
-      // DEBUG: log whether gloss branch is entered and what style contains
-      console.log('[LipGloss] lipsStyle=', JSON.stringify(lipsStyle),
-                  'gloss=', lipsStyle.gloss, 'shimmer=', lipsStyle.shimmer);
+      //     Drawn to a SEPARATE offscreen canvas (glossOc) so it can be
+      //     composited with 'screen' blend mode after the multiply lip fill.
+      //     If gloss were drawn onto octx it would be destroyed by the outer
+      //     multiply composite (multiply(white, x) = x — highlights vanish).
+      var glossOc = null;
       if (lipsStyle.gloss || lipsStyle.shimmer) {
-        this._drawLipGloss(octx, landmarks, t, lipsOpacity, lipsStyle);
+        glossOc        = document.createElement('canvas');
+        glossOc.width  = bufW;
+        glossOc.height = bufH;
+        var gctx = glossOc.getContext('2d');
+        gctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+        // Clip to the outer lip boundary so highlights don't bleed outside.
+        gctx.save();
+        this._tracePath(gctx, landmarks, REGION_POLYGONS.lips_outer, t);
+        gctx.clip();
+        this._drawLipGloss(gctx, landmarks, t, lipsOpacity, lipsStyle);
+        gctx.restore();
       }
 
       // 2. Punch out the inner mouth opening so open-mouth gap is transparent
@@ -1720,6 +1728,18 @@
       if (lipsFeatherPx > 0) ctx.filter = 'blur(' + lipsFeatherPx.toFixed(1) + 'px)';
       ctx.drawImage(oc, 0, 0, bufW, bufH, 0, 0, cssW, cssH);
       ctx.restore();
+
+      // 3a. Composite the gloss layer separately with 'screen' so that bright
+      //     white specular highlights are visible regardless of the lip blend
+      //     mode.  screen(white, x)=white and screen(transparent, x)=x so
+      //     only the actual highlight ellipses affect the result.
+      if (glossOc) {
+        ctx.save();
+        ctx.globalCompositeOperation = 'screen';
+        if (lipsFeatherPx > 0) ctx.filter = 'blur(' + lipsFeatherPx.toFixed(1) + 'px)';
+        ctx.drawImage(glossOc, 0, 0, bufW, bufH, 0, 0, cssW, cssH);
+        ctx.restore();
+      }
     },
 
     // -------------------------------------------------------------------------
@@ -2252,14 +2272,6 @@
     _drawLipGloss: function (octx, lms, t, lipsOpacity, style) {
       var self = this;
 
-      // ── DEBUG (remove after confirming) ───────────────────────────────────
-      if (!window._glossDebugLogged) {
-        window._glossDebugLogged = true;
-        console.log('[LipGloss] function called. style=', JSON.stringify(style),
-                    'lipsOpacity=', lipsOpacity);
-      }
-      // ── END DEBUG ─────────────────────────────────────────────────────────
-
       // --- Key landmarks ----------------------------------------------------
       var leftCorner  = self._lmPx(lms[61],  t);
       var rightCorner = self._lmPx(lms[291], t);
@@ -2296,22 +2308,6 @@
         ? Math.min(1, Math.max(0, style.glossOpacity))
         : Math.min(0.88, 0.52 + lipsOpacity * 0.36);
       baseAlpha = Math.min(1, baseAlpha * poutBright);
-
-      // ── DEBUG ─────────────────────────────────────────────────────────────
-      if (!window._glossDebugLogged2) {
-        window._glossDebugLogged2 = true;
-        console.log('[LipGloss] lipW=', lipW.toFixed(1), 'lowerH=', lowerH.toFixed(1),
-                    'baseAlpha=', baseAlpha.toFixed(3),
-                    'hiW(main)=', (lipW * 0.38).toFixed(1) + 'px');
-        // Draw a bright magenta rectangle so we can confirm canvas is live
-        octx.save();
-        octx.globalCompositeOperation = 'source-over';
-        octx.globalAlpha = 0.8;
-        octx.fillStyle = 'magenta';
-        octx.fillRect(lipMidX - 20, lowerTop, 40, lowerH);
-        octx.restore();
-      }
-      // ── END DEBUG ─────────────────────────────────────────────────────────
 
       // --- Drawing helpers --------------------------------------------------
       // bigHighlight: large ellipse, bright centre, clears at 78 % of radius.
