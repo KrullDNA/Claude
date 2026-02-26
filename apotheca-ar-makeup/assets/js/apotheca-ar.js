@@ -1694,10 +1694,10 @@
       this._tracePath(octx, landmarks, REGION_POLYGONS.lips_outer, t);
       octx.fill();
 
-      // 1a. Gloss / lip-oil specular effect (product meta: gloss = true).
+      // 1a. Shimmer specular effect (product meta: shimmer = true).
       //     Drawn after the base fill so highlights sit on top of the colour,
       //     but before the destination-out so the mouth opening clips them too.
-      if (lipsStyle.gloss) {
+      if (lipsStyle.shimmer) {
         this._drawLipGloss(octx, landmarks, t, lipsOpacity, lipsStyle);
       }
 
@@ -2130,8 +2130,12 @@
       cctx.restore();
       cctx.globalCompositeOperation = 'source-over';
 
-      // Step 4 – paint masked snapshot over the makeup on the main canvas
+      // Step 4 – paint masked snapshot over the makeup on the main canvas.
+      // Reset to an un-flipped DPR transform so the comp (whose hand shape
+      // was already drawn at mirrored coords) lands at the correct position
+      // without being double-flipped by the main canvas mirror.
       ctx.save();
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
       ctx.globalCompositeOperation = 'source-over';
       ctx.globalAlpha = 1.0;
       ctx.drawImage(this._handCompC, 0, 0);
@@ -2156,10 +2160,15 @@
       var dx    = (t && t.dx)    || 0;
       var dy    = (t && t.dy)    || 0;
 
+      // The main canvas is horizontally flipped (setTransform(-dpr, …)).
+      // The mask canvas has a plain transform, so we mirror x here so the
+      // hand shape aligns with where the hand actually appears in the
+      // mirrored display.  The comp is later drawn back without the flip.
+      var cssW = (t && t.w) || 0;
       var p = [];
       for (var i = 0; i < lms.length; i++) {
         p.push({
-          x: (lms[i].x * srcW * scale) + dx,
+          x: cssW - ((lms[i].x * srcW * scale) + dx),
           y: (lms[i].y * srcH * scale) + dy
         });
       }

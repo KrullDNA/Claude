@@ -246,16 +246,16 @@ if (isset($product) && $product && is_a($product, 'WC_Product')) {
         }
     }
 
-    // Gloss flag — JetEngine / Crocoblock switcher stores '1' when on.
-    // Only meaningful for lip-region products; JS checks lipsStyle.gloss.
-    $gloss_raw = get_post_meta($product_id, 'gloss', true);
+    // Shimmer flag — JetEngine / Crocoblock switcher stores '1' when on.
+    // Only meaningful for lip-region products; JS checks lipsStyle.shimmer.
+    $gloss_raw = get_post_meta($product_id, 'shimmer', true);
     if ($gloss_raw !== '' && $gloss_raw !== false && $gloss_raw !== null
         && $gloss_raw !== '0' && $gloss_raw !== 'false' && $gloss_raw !== 'no'
     ) {
         if (!isset($product_styles['lips'])) {
             $product_styles['lips'] = array();
         }
-        $product_styles['lips']['gloss'] = true;
+        $product_styles['lips']['shimmer'] = true;
     }
 
     // Shimmer / gloss opacity override (0-100 integer → 0-1 float).
