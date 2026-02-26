@@ -2,6 +2,18 @@
 
 All notable changes to Apotheca AR Makeup Try-On will be documented in this file.
 
+## 1.0.26
+- Improve: Lip gloss effect (_drawLipGloss) completely reworked with 7 layered highlights.
+  1. Main lower-lip specular — shifts left/right with face yaw angle (nose-tip offset) and scales up when pouting.
+  2. Hot-spot core — tiny super-bright centre ellipse for a glassy/wet-oil appearance.
+  3. Secondary soft glow — wider, lower-opacity ellipse below the main highlight for depth.
+  4. Cupid's bow twin highlights — per-peak alpha scaled by yaw so the turned-away bow dims and the near side stays lit.
+  5. Philtrum ridge highlight — subtle brightening between the bow peaks, fades with yaw.
+  6. Diffuse wet-look sheen — broad, very-low-opacity overlay keeping the whole lip surface moist-looking.
+  7. Lip-border rim light — thin top/bottom rim brightening for a plumper, three-dimensional appearance.
+- Pout detection: Z-depth difference between lower-lip centre and corners automatically increases highlight size and brightness when lips protrude.
+- Face yaw detection: nose-tip X offset drives a lateral specular shift so the gloss tracks realistically as the face turns.
+
 ## 1.0.25
 - Remove: Face Region debug notice on the WooCommerce Attributes admin screen (logging remains available via the apotheca_ar_debug filter).
 - Fix: Mobile (iOS Safari) — stronger horizontal containment (safe-area gutters via modal padding + explicit overflow-x hidden + container overflow hidden + canvas max-width).
