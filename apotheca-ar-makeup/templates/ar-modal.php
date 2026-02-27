@@ -309,6 +309,21 @@ if (isset($product) && $product && is_a($product, 'WC_Product')) {
             }
         }
     }
+
+    // Sparkle switcher — JetEngine / Crocoblock switcher field ('1' on, '0' off).
+    // Turns the 200-particle sparkle effect on or off for this product.
+    // Enabling it also activates the shimmer renderer pipeline automatically.
+    $sparkle_switch_raw = get_post_meta($product_id, 'sparkle', true);
+    if ($sparkle_switch_raw !== '' && $sparkle_switch_raw !== false && $sparkle_switch_raw !== null) {
+        if (!isset($product_styles['lips'])) {
+            $product_styles['lips'] = array();
+        }
+        $sparkle_on = !in_array((string) $sparkle_switch_raw, array('0', 'false', 'no'), true);
+        $product_styles['lips']['sparkle'] = $sparkle_on;
+        if ($sparkle_on) {
+            $product_styles['lips']['shimmer'] = true;
+        }
+    }
 }
 ?>
 <script>

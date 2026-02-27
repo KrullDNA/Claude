@@ -2535,8 +2535,11 @@
         ? Math.min(1, Math.max(0, style.sparkleOpacity))
         : baseAlpha;
 
+      // Particles only render when the 'sparkle' switcher field is enabled.
+      if (!(style && style.sparkle)) { return; }
+
       // Build the particle list once, using a fixed-seed LCG so positions are
-      // always the same (70 lower lip, 30 upper lip).
+      // always the same (140 lower lip, 60 upper lip = 200 total).
       if (!self._shimmerParticles) {
         var _s = 0x12345678;
         function _rnd() {
@@ -2544,7 +2547,7 @@
           return (_s >>> 0) / 4294967296;
         }
         var _pts = [];
-        for (var _i = 0; _i < 70; _i++) {
+        for (var _i = 0; _i < 140; _i++) {
           _pts.push({
             lip:   'lower',
             xFrac: (_rnd() * 2 - 1) * 0.42,
@@ -2555,7 +2558,7 @@
             nextToggle: now + _rnd() * 700
           });
         }
-        for (var _j = 0; _j < 30; _j++) {
+        for (var _j = 0; _j < 60; _j++) {
           _pts.push({
             lip:   'upper',
             xFrac: (_rnd() * 2 - 1) * 0.22,
