@@ -2516,20 +2516,27 @@
       octx.restore();
 
       // --- 2. Sparkle glints ---------------------------------------------------
-      // Small soft radial dots that oscillate independently on a sine wave.
-      // At rest each glint cycles gently (25 %–60 % of peak); during motion
-      // the motion term boosts them up to 100 % — a visible sparkle catch.
+      // Many tiny dots scattered densely across both lips, each oscillating on
+      // an independent high-frequency sine wave for a rapid sparkle effect.
+      // sparkleOpacity (from the 'sparkle_opacity' product meta field, 0-100)
+      // drives glint intensity directly; falls back to shimmer baseAlpha when
+      // not set.
       //
       // lipRef normalises glint radius to lip size (1 unit = 1 % of lip width).
       var lipRef = lipW / 100;
 
+      // sparkleOpacity: dedicated per-product sparkle intensity (0–1).
+      var sparkleAlpha = (style && style.sparkleOpacity !== undefined)
+        ? Math.min(1, Math.max(0, style.sparkleOpacity))
+        : baseAlpha;
+
       function drawGlint(xFrac, cy, rBase, opa, freq, phase) {
         var sine = 0.5 + 0.5 * Math.sin(tSec * freq * Math.PI * 2 + phase);
         // Baseline flicker (0.25–0.60) + motion boost (up to 1.0)
-        var eff  = baseAlpha * opa * (0.25 + 0.35 * sine + 0.40 * motion * sine);
+        var eff  = sparkleAlpha * opa * (0.25 + 0.35 * sine + 0.40 * motion * sine);
         if (eff < 0.02) { return; }
         var cx = lipMidX + xFrac * lipW;
-        var rx = Math.max(2, Math.min(rBase * lipRef, rBase * 2));
+        var rx = Math.max(1, Math.min(rBase * lipRef, rBase * 1.5));
         var ry = rx * 0.65;   // slightly flattened ellipse
         var g  = octx.createRadialGradient(0, 0, 0, 0, 0, 1);
         g.addColorStop(0,    'rgba(255,255,255,' + Math.min(1, eff).toFixed(3) + ')');
@@ -2547,16 +2554,33 @@
         octx.restore();
       }
 
-      // Lower lip — five glints from centre outward
-      drawGlint(  0.00, lowerTop + lowerH * 0.35,  4.5, 0.85, 1.30, 0.0 );  // centre catchlight
-      drawGlint( -0.22, lowerTop + lowerH * 0.42,  3.0, 0.65, 1.70, 1.1 );  // left
-      drawGlint(  0.22, lowerTop + lowerH * 0.42,  3.0, 0.65, 1.50, 2.3 );  // right
-      drawGlint( -0.38, lowerTop + lowerH * 0.52,  2.0, 0.40, 2.10, 0.7 );  // far-left
-      drawGlint(  0.38, lowerTop + lowerH * 0.52,  2.0, 0.40, 1.90, 3.5 );  // far-right
+      // Lower lip — 16 small fast sparkles spread across the full surface
+      drawGlint(  0.00, lowerTop + lowerH * 0.25,  1.4, 0.90, 6.2, 0.0 );
+      drawGlint( -0.12, lowerTop + lowerH * 0.30,  1.0, 0.75, 7.1, 0.5 );
+      drawGlint(  0.12, lowerTop + lowerH * 0.30,  1.0, 0.75, 5.8, 1.1 );
+      drawGlint( -0.24, lowerTop + lowerH * 0.38,  0.9, 0.70, 8.0, 2.0 );
+      drawGlint(  0.24, lowerTop + lowerH * 0.38,  0.9, 0.70, 6.5, 0.3 );
+      drawGlint( -0.36, lowerTop + lowerH * 0.45,  0.8, 0.60, 7.4, 1.7 );
+      drawGlint(  0.36, lowerTop + lowerH * 0.45,  0.8, 0.60, 5.2, 3.0 );
+      drawGlint( -0.08, lowerTop + lowerH * 0.50,  1.2, 0.85, 6.8, 0.9 );
+      drawGlint(  0.08, lowerTop + lowerH * 0.50,  1.2, 0.85, 7.6, 2.4 );
+      drawGlint( -0.20, lowerTop + lowerH * 0.58,  0.8, 0.55, 5.5, 1.3 );
+      drawGlint(  0.20, lowerTop + lowerH * 0.58,  0.8, 0.55, 8.3, 0.7 );
+      drawGlint( -0.32, lowerTop + lowerH * 0.63,  0.7, 0.45, 6.1, 2.9 );
+      drawGlint(  0.32, lowerTop + lowerH * 0.63,  0.7, 0.45, 7.9, 1.5 );
+      drawGlint(  0.00, lowerTop + lowerH * 0.65,  1.0, 0.65, 5.9, 3.7 );
+      drawGlint( -0.15, lowerTop + lowerH * 0.70,  0.7, 0.40, 7.2, 0.2 );
+      drawGlint(  0.15, lowerTop + lowerH * 0.70,  0.7, 0.40, 8.7, 2.1 );
 
-      // Upper lip — Cupid's bow peak catchlights
-      drawGlint( -0.14, upperOuter.y + upperH * 0.55,  2.5, 0.55, 1.10, 1.8 );
-      drawGlint(  0.14, upperOuter.y + upperH * 0.55,  2.5, 0.55, 1.40, 0.4 );
+      // Upper lip — 8 small fast sparkles across the Cupid's bow
+      drawGlint( -0.10, upperOuter.y + upperH * 0.40,  1.0, 0.70, 6.4, 1.0 );
+      drawGlint(  0.10, upperOuter.y + upperH * 0.40,  1.0, 0.70, 7.3, 0.4 );
+      drawGlint( -0.20, upperOuter.y + upperH * 0.55,  0.8, 0.60, 5.7, 2.2 );
+      drawGlint(  0.20, upperOuter.y + upperH * 0.55,  0.8, 0.60, 8.1, 1.6 );
+      drawGlint(  0.00, upperOuter.y + upperH * 0.50,  1.1, 0.80, 6.9, 3.1 );
+      drawGlint( -0.14, upperOuter.y + upperH * 0.65,  0.7, 0.50, 7.5, 0.8 );
+      drawGlint(  0.14, upperOuter.y + upperH * 0.65,  0.7, 0.50, 5.3, 2.8 );
+      drawGlint(  0.00, upperOuter.y + upperH * 0.70,  0.8, 0.55, 8.5, 1.2 );
     },
 
     /**

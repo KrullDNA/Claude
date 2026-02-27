@@ -291,6 +291,24 @@ if (isset($product) && $product && is_a($product, 'WC_Product')) {
             $product_styles['lips']['glossOpacity'] = round($gloss_opacity_val / 100, 4);
         }
     }
+
+    // Sparkle opacity — controls the intensity of the many-small-sparkle glint
+    // effect (0-100 integer → 0-1 float).  A non-zero value also implicitly
+    // enables the shimmer renderer so no separate 'shimmer' field is needed.
+    $sparkle_raw = get_post_meta($product_id, 'sparkle_opacity', true);
+    if ($sparkle_raw !== '' && $sparkle_raw !== false && $sparkle_raw !== null) {
+        $sparkle_val = (int) $sparkle_raw;
+        if ($sparkle_val >= 0 && $sparkle_val <= 100) {
+            if (!isset($product_styles['lips'])) {
+                $product_styles['lips'] = array();
+            }
+            $product_styles['lips']['sparkleOpacity'] = round($sparkle_val / 100, 4);
+            // Non-zero sparkle_opacity activates the shimmer renderer automatically.
+            if ($sparkle_val > 0) {
+                $product_styles['lips']['shimmer'] = true;
+            }
+        }
+    }
 }
 ?>
 <script>
