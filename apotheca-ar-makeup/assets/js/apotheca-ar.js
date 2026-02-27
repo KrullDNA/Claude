@@ -2588,19 +2588,33 @@
         self._shimmerParticles = _pts;
       }
 
+      // Sparkles only animate while the head/lip-centre is moving.
+      // motion > 0.05 gives ~250 ms of continued sparkle after the head stops,
+      // then the effect freezes until movement resumes.
+      var moving = motion > 0.05;
+
       var particles = self._shimmerParticles;
       for (var _p = 0; _p < particles.length; _p++) {
         var pk = particles[_p];
 
-        // Toggle on/off state at the particle's own random interval.
-        if (now >= pk.nextToggle) {
-          pk.isOn = !pk.isOn;
-          if (pk.isOn) {
-            // Stay lit for 60–220 ms
-            pk.nextToggle = now + 60 + Math.random() * 160;
-          } else {
-            // Stay dark for 120–520 ms — dark longer than lit for a natural twinkle
-            pk.nextToggle = now + 120 + Math.random() * 400;
+        if (moving) {
+          // Toggle on/off state at the particle's own random interval.
+          if (now >= pk.nextToggle) {
+            pk.isOn = !pk.isOn;
+            if (pk.isOn) {
+              // Stay lit for 60–220 ms
+              pk.nextToggle = now + 60 + Math.random() * 160;
+            } else {
+              // Stay dark for 120–520 ms — dark longer than lit for a natural twinkle
+              pk.nextToggle = now + 120 + Math.random() * 400;
+            }
+          }
+        } else {
+          // Head is still — freeze sparkles in place.  Refresh expired timers
+          // with small random offsets so particles don't all flash at once the
+          // instant motion resumes.
+          if (now >= pk.nextToggle) {
+            pk.nextToggle = now + 50 + Math.random() * 200;
           }
         }
         if (!pk.isOn) { continue; }
