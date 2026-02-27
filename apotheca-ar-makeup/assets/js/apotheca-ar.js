@@ -1712,6 +1712,12 @@
         gctx.clip();
         this._drawLipGloss(gctx, landmarks, t, lipsOpacity, lipsStyle);
         gctx.restore();
+        // Punch out the inner mouth opening so sparkles can't appear in the gap.
+        gctx.globalCompositeOperation = 'destination-out';
+        gctx.globalAlpha = 1.0;
+        this._tracePath(gctx, landmarks, REGION_POLYGONS.lips_inner, t);
+        gctx.fill();
+        gctx.globalCompositeOperation = 'source-over';
       }
 
       // 2. Punch out the inner mouth opening so open-mouth gap is transparent
@@ -2515,34 +2521,88 @@
       octx.fill();
       octx.restore();
 
-      // --- 2. Sparkle glints ---------------------------------------------------
-      // Many tiny dots scattered densely across both lips, each oscillating on
-      // an independent high-frequency sine wave for a rapid sparkle effect.
-      // sparkleOpacity (from the 'sparkle_opacity' product meta field, 0-100)
-      // drives glint intensity directly; falls back to shimmer baseAlpha when
-      // not set.
+      // --- 2. Sparkle particles ------------------------------------------------
+      // 100 tiny dots with independent random on/off blink timers.
+      // Positions are generated once from a seeded PRNG so they are consistent
+      // across frames.  Each particle's on/off durations are randomised with
+      // Math.random() every time it toggles, giving genuine independence.
       //
-      // lipRef normalises glint radius to lip size (1 unit = 1 % of lip width).
+      // sparkleOpacity (from the 'sparkle_opacity' product meta field, 0-100)
+      // drives peak brightness; falls back to shimmer baseAlpha when not set.
       var lipRef = lipW / 100;
 
-      // sparkleOpacity: dedicated per-product sparkle intensity (0–1).
       var sparkleAlpha = (style && style.sparkleOpacity !== undefined)
         ? Math.min(1, Math.max(0, style.sparkleOpacity))
         : baseAlpha;
 
-      function drawGlint(xFrac, cy, rBase, opa, freq, phase) {
-        var sine = 0.5 + 0.5 * Math.sin(tSec * freq * Math.PI * 2 + phase);
-        // Baseline flicker (0.25–0.60) + motion boost (up to 1.0)
-        var eff  = sparkleAlpha * opa * (0.25 + 0.35 * sine + 0.40 * motion * sine);
-        if (eff < 0.02) { return; }
-        var cx = lipMidX + xFrac * lipW;
-        var rx = Math.max(1, Math.min(rBase * lipRef, rBase * 1.5));
-        var ry = rx * 0.65;   // slightly flattened ellipse
-        var g  = octx.createRadialGradient(0, 0, 0, 0, 0, 1);
+      // Build the particle list once, using a fixed-seed LCG so positions are
+      // always the same (70 lower lip, 30 upper lip).
+      if (!self._shimmerParticles) {
+        var _s = 0x12345678;
+        function _rnd() {
+          _s = (Math.imul(_s, 1664525) + 1013904223) | 0;
+          return (_s >>> 0) / 4294967296;
+        }
+        var _pts = [];
+        for (var _i = 0; _i < 70; _i++) {
+          _pts.push({
+            lip:   'lower',
+            xFrac: (_rnd() * 2 - 1) * 0.42,
+            yFrac: 0.12 + _rnd() * 0.76,
+            rBase: 0.55 + _rnd() * 0.70,
+            opa:   0.55 + _rnd() * 0.45,
+            isOn:  _rnd() > 0.5,
+            nextToggle: now + _rnd() * 700
+          });
+        }
+        for (var _j = 0; _j < 30; _j++) {
+          _pts.push({
+            lip:   'upper',
+            xFrac: (_rnd() * 2 - 1) * 0.22,
+            yFrac: 0.28 + _rnd() * 0.52,
+            rBase: 0.50 + _rnd() * 0.60,
+            opa:   0.55 + _rnd() * 0.45,
+            isOn:  _rnd() > 0.5,
+            nextToggle: now + _rnd() * 700
+          });
+        }
+        self._shimmerParticles = _pts;
+      }
+
+      var particles = self._shimmerParticles;
+      for (var _p = 0; _p < particles.length; _p++) {
+        var pk = particles[_p];
+
+        // Toggle on/off state at the particle's own random interval.
+        if (now >= pk.nextToggle) {
+          pk.isOn = !pk.isOn;
+          if (pk.isOn) {
+            // Stay lit for 60–220 ms
+            pk.nextToggle = now + 60 + Math.random() * 160;
+          } else {
+            // Stay dark for 120–520 ms — dark longer than lit for a natural twinkle
+            pk.nextToggle = now + 120 + Math.random() * 400;
+          }
+        }
+        if (!pk.isOn) { continue; }
+
+        // Brightness: base opacity * motion energy boost
+        var eff = sparkleAlpha * pk.opa * (0.55 + 0.45 * motion);
+        if (eff < 0.02) { continue; }
+
+        var cy = (pk.lip === 'lower')
+          ? lowerTop + lowerH * pk.yFrac
+          : upperOuter.y + upperH * pk.yFrac;
+        var cx = lipMidX + pk.xFrac * lipW;
+        var rx = Math.max(1, Math.min(pk.rBase * lipRef, pk.rBase * 1.5));
+        var ry = rx * 0.65;
+
+        var g = octx.createRadialGradient(0, 0, 0, 0, 0, 1);
         g.addColorStop(0,    'rgba(255,255,255,' + Math.min(1, eff).toFixed(3) + ')');
         g.addColorStop(0.68, 'rgba(255,255,255,' + Math.min(1, eff).toFixed(3) + ')');
         g.addColorStop(0.92, 'rgba(255,255,255,' + (eff * 0.12).toFixed(3) + ')');
         g.addColorStop(1,    'rgba(255,255,255,0)');
+
         octx.save();
         octx.globalAlpha = 1.0;
         octx.globalCompositeOperation = 'source-over';
@@ -2554,34 +2614,6 @@
         octx.fill();
         octx.restore();
       }
-
-      // Lower lip — 16 small fast sparkles spread across the full surface
-      drawGlint(  0.00, lowerTop + lowerH * 0.25,  1.4, 0.90, 6.2, 0.0 );
-      drawGlint( -0.12, lowerTop + lowerH * 0.30,  1.0, 0.75, 7.1, 0.5 );
-      drawGlint(  0.12, lowerTop + lowerH * 0.30,  1.0, 0.75, 5.8, 1.1 );
-      drawGlint( -0.24, lowerTop + lowerH * 0.38,  0.9, 0.70, 8.0, 2.0 );
-      drawGlint(  0.24, lowerTop + lowerH * 0.38,  0.9, 0.70, 6.5, 0.3 );
-      drawGlint( -0.36, lowerTop + lowerH * 0.45,  0.8, 0.60, 7.4, 1.7 );
-      drawGlint(  0.36, lowerTop + lowerH * 0.45,  0.8, 0.60, 5.2, 3.0 );
-      drawGlint( -0.08, lowerTop + lowerH * 0.50,  1.2, 0.85, 6.8, 0.9 );
-      drawGlint(  0.08, lowerTop + lowerH * 0.50,  1.2, 0.85, 7.6, 2.4 );
-      drawGlint( -0.20, lowerTop + lowerH * 0.58,  0.8, 0.55, 5.5, 1.3 );
-      drawGlint(  0.20, lowerTop + lowerH * 0.58,  0.8, 0.55, 8.3, 0.7 );
-      drawGlint( -0.32, lowerTop + lowerH * 0.63,  0.7, 0.45, 6.1, 2.9 );
-      drawGlint(  0.32, lowerTop + lowerH * 0.63,  0.7, 0.45, 7.9, 1.5 );
-      drawGlint(  0.00, lowerTop + lowerH * 0.65,  1.0, 0.65, 5.9, 3.7 );
-      drawGlint( -0.15, lowerTop + lowerH * 0.70,  0.7, 0.40, 7.2, 0.2 );
-      drawGlint(  0.15, lowerTop + lowerH * 0.70,  0.7, 0.40, 8.7, 2.1 );
-
-      // Upper lip — 8 small fast sparkles across the Cupid's bow
-      drawGlint( -0.10, upperOuter.y + upperH * 0.40,  1.0, 0.70, 6.4, 1.0 );
-      drawGlint(  0.10, upperOuter.y + upperH * 0.40,  1.0, 0.70, 7.3, 0.4 );
-      drawGlint( -0.20, upperOuter.y + upperH * 0.55,  0.8, 0.60, 5.7, 2.2 );
-      drawGlint(  0.20, upperOuter.y + upperH * 0.55,  0.8, 0.60, 8.1, 1.6 );
-      drawGlint(  0.00, upperOuter.y + upperH * 0.50,  1.1, 0.80, 6.9, 3.1 );
-      drawGlint( -0.14, upperOuter.y + upperH * 0.65,  0.7, 0.50, 7.5, 0.8 );
-      drawGlint(  0.14, upperOuter.y + upperH * 0.65,  0.7, 0.50, 5.3, 2.8 );
-      drawGlint(  0.00, upperOuter.y + upperH * 0.70,  0.8, 0.55, 8.5, 1.2 );
     },
 
     /**
