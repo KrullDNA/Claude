@@ -2459,12 +2459,15 @@
       var rightCorner = self._lmPx(lms[291], t);
       var lowerOuter  = self._lmPx(lms[17],  t);
       var innerLower  = self._lmPx(lms[14],  t);
+      var upperOuter  = self._lmPx(lms[0],   t);   // philtrum centre (top of upper lip)
 
-      var lipW    = rightCorner.x - leftCorner.x;
-      var lipMidX = (leftCorner.x + rightCorner.x) * 0.5;
+      var lipW     = rightCorner.x - leftCorner.x;
+      var lipMidX  = (leftCorner.x + rightCorner.x) * 0.5;
       var lowerTop = innerLower.y;
       var lowerBot = lowerOuter.y;
       var lowerH   = Math.max(1, lowerBot - lowerTop);
+      // Upper lip spans from philtrum (lms[0]) down to the inner lip junction.
+      var upperH   = Math.max(1, lowerTop - upperOuter.y);
 
       // shimmerOpacity is the dedicated key; fall back to glossOpacity for
       // backward compat, then derive from lipsOpacity.
@@ -2474,11 +2477,26 @@
       var baseAlpha = (shimmerOpacity !== null)
         ? Math.min(1, Math.max(0, shimmerOpacity))
         : Math.min(0.80, 0.45 + lipsOpacity * 0.35);
-      if (baseAlpha <= 0) { return; }   // opacity is zero — nothing to draw
+      if (baseAlpha <= 0) { return; }
 
-      // Single large, heavily-feathered central glow on the lower lip only.
-      // The gradient fades very gradually from the centre out so the whole
-      // lower lip reads as a soft pearlescent sheen — no visible edges.
+      // --- Motion energy -------------------------------------------------------
+      // Tracks how much the lip centre has moved this frame.  A fast exponential
+      // decay means the energy spikes on motion and fades within ~300 ms.
+      var now = Date.now();
+      if (!self._shimmerState) {
+        self._shimmerState = { prevX: lipMidX, prevY: lowerTop, prevT: now, energy: 0 };
+      }
+      var ss  = self._shimmerState;
+      var dt  = Math.min((now - ss.prevT) / 1000, 0.1);           // seconds, clamped
+      var dxN = (lipMidX  - ss.prevX) / (lipW   || 1);           // normalised X delta
+      var dyN = (lowerTop - ss.prevY) / (lowerH  || 1);           // normalised Y delta
+      ss.energy = Math.min(1, ss.energy * Math.exp(-dt * 8)        // decay ~125 ms half-life
+                              + Math.min(Math.sqrt(dxN*dxN + dyN*dyN) * 14, 1));
+      ss.prevX = lipMidX;  ss.prevY = lowerTop;  ss.prevT = now;
+      var motion = ss.energy;
+      var tSec   = now / 1000;    // wall-clock seconds for sine oscillation
+
+      // --- 1. Broad diffuse base sheen -----------------------------------------
       var sg = octx.createRadialGradient(0, 0, 0, 0, 0, 1);
       sg.addColorStop(0,    'rgba(255,255,255,' + (baseAlpha * 0.55).toFixed(3) + ')');
       sg.addColorStop(0.35, 'rgba(255,255,255,' + (baseAlpha * 0.30).toFixed(3) + ')');
@@ -2496,6 +2514,49 @@
       octx.fillStyle = sg;
       octx.fill();
       octx.restore();
+
+      // --- 2. Sparkle glints ---------------------------------------------------
+      // Small soft radial dots that oscillate independently on a sine wave.
+      // At rest each glint cycles gently (25 %–60 % of peak); during motion
+      // the motion term boosts them up to 100 % — a visible sparkle catch.
+      //
+      // lipRef normalises glint radius to lip size (1 unit = 1 % of lip width).
+      var lipRef = lipW / 100;
+
+      function drawGlint(xFrac, cy, rBase, opa, freq, phase) {
+        var sine = 0.5 + 0.5 * Math.sin(tSec * freq * Math.PI * 2 + phase);
+        // Baseline flicker (0.25–0.60) + motion boost (up to 1.0)
+        var eff  = baseAlpha * opa * (0.25 + 0.35 * sine + 0.40 * motion * sine);
+        if (eff < 0.02) { return; }
+        var cx = lipMidX + xFrac * lipW;
+        var rx = Math.max(2, Math.min(rBase * lipRef, rBase * 2));
+        var ry = rx * 0.65;   // slightly flattened ellipse
+        var g  = octx.createRadialGradient(0, 0, 0, 0, 0, 1);
+        g.addColorStop(0,    'rgba(255,255,255,' + Math.min(1, eff).toFixed(3) + ')');
+        g.addColorStop(0.50, 'rgba(255,255,255,' + (eff * 0.35).toFixed(3) + ')');
+        g.addColorStop(1,    'rgba(255,255,255,0)');
+        octx.save();
+        octx.globalAlpha = 1.0;
+        octx.globalCompositeOperation = 'source-over';
+        octx.translate(cx, cy);
+        octx.scale(rx, ry);
+        octx.beginPath();
+        octx.arc(0, 0, 1, 0, Math.PI * 2);
+        octx.fillStyle = g;
+        octx.fill();
+        octx.restore();
+      }
+
+      // Lower lip — five glints from centre outward
+      drawGlint(  0.00, lowerTop + lowerH * 0.35,  4.5, 0.85, 1.30, 0.0 );  // centre catchlight
+      drawGlint( -0.22, lowerTop + lowerH * 0.42,  3.0, 0.65, 1.70, 1.1 );  // left
+      drawGlint(  0.22, lowerTop + lowerH * 0.42,  3.0, 0.65, 1.50, 2.3 );  // right
+      drawGlint( -0.38, lowerTop + lowerH * 0.52,  2.0, 0.40, 2.10, 0.7 );  // far-left
+      drawGlint(  0.38, lowerTop + lowerH * 0.52,  2.0, 0.40, 1.90, 3.5 );  // far-right
+
+      // Upper lip — Cupid's bow peak catchlights
+      drawGlint( -0.14, upperOuter.y + upperH * 0.55,  2.5, 0.55, 1.10, 1.8 );
+      drawGlint(  0.14, upperOuter.y + upperH * 0.55,  2.5, 0.55, 1.40, 0.4 );
     },
 
     /**
