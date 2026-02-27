@@ -2296,23 +2296,24 @@
       // --- Face yaw ---------------------------------------------------------
       var rawYaw   = (noseTip.x - lipMidX) / Math.max(1, lipW * 0.5);
       var yawFrac  = Math.max(-0.65, Math.min(0.65, rawYaw));
+      var absYaw   = Math.abs(yawFrac);
       var hiShiftX = yawFrac * lipW * 0.30;
 
       // --- Face pitch (vertical tilt) ---------------------------------------
-      // Positive pitchFrac = face looking up → lower lip outer surface faces
-      // camera more → highlights slide toward lowerOuter.
       var rawPitch  = (cornerMidY - noseTip.y) / Math.max(1, lowerH * 3.0);
       var pitchFrac = Math.max(-0.45, Math.min(0.45, rawPitch));
       var hiShiftY  = pitchFrac * lowerH * 0.40;
 
-      // --- Mouth-open angle (CCW rotation to follow lower lip surface) ------
-      // As innerLower drops below cornerMidY the lower lip's visible face
-      // tilts; we rotate the highlight ellipses CCW to match.
+      // --- Mouth-open -------------------------------------------------------
       var openDrop   = Math.max(0, innerLower.y - cornerMidY);
       var openFrac   = Math.min(1.0, openDrop / Math.max(1, lowerH * 0.75));
-      var lipAngle   = openFrac * 0.50;            // CW in canvas = CCW in mirrored view; up to ~29°
-      // Also slide the highlight down toward the outer lip as it opens.
-      var openYShift = openFrac * lowerH * 0.28;
+      // Slide highlight toward outer lip but keep it inside lip bounds.
+      var openYShift = openFrac * lowerH * 0.18;
+
+      // --- Combined rotation ------------------------------------------------
+      // openFrac: CW-in-canvas (CCW-in-mirror) follows lower lip tilting down.
+      // yawFrac:  subtract → CW-in-mirror tilt as face turns to the side.
+      var lipAngle = openFrac * 0.50 - yawFrac * 0.35;
 
       // --- Pout depth -------------------------------------------------------
       var cornerZ    = (lms[61].z + lms[291].z) * 0.5;
@@ -2325,7 +2326,9 @@
       var baseAlpha = (style && style.glossOpacity !== undefined)
         ? Math.min(1, Math.max(0, style.glossOpacity))
         : Math.min(0.88, 0.52 + lipsOpacity * 0.36);
-      baseAlpha = Math.min(1, baseAlpha * poutBright);
+      // Peak brightness when lip faces camera directly; dims slightly on turn/tilt.
+      var facingFactor = Math.max(0.60, 1 - absYaw * 0.30 - Math.abs(pitchFrac) * 0.20);
+      baseAlpha = Math.min(1, baseAlpha * poutBright * facingFactor);
 
       // --- Drawing helpers --------------------------------------------------
       // bigHighlight: large ellipse, bright centre, clears at 78 % of radius.
@@ -2378,11 +2381,15 @@
       //  • openFrac  → openYShift (slides spots down as lower lip opens)
       //  • lipAngle  → tightSpot rot param (tilts ellipse CCW with lip surface)
 
-      // 1. Main lower-lip highlight (screen-left, mirrored camera)
-      var hiX = lipMidX - lipW * 0.20 + hiShiftX;
+      // 1. Main lower-lip highlight — closer to centre; offset shrinks when
+      //    face turns (keeps spot on lip for profile/pout-to-side poses).
+      var baseOffsetX = lipW * 0.12 * (1 - absYaw * 0.50);
+      var hiX = lipMidX - baseOffsetX + hiShiftX;
       var hiY = lowerTop + lowerH * 0.32 + hiShiftY + openYShift;
-      var hiW = lipW  * 0.17 * poutScaleW;
-      var hiH = lowerH * 0.30 * poutScaleH;
+      hiY     = Math.min(hiY, lowerBot - lowerH * 0.10);   // clamp inside lip
+      // Deform with face angle: wider + flatter when turning (lip appears angled).
+      var hiW = lipW  * 0.17 * poutScaleW * (1 + absYaw * 0.25);
+      var hiH = lowerH * 0.30 * poutScaleH * (1 - absYaw * 0.25);
       tightSpot(hiX, hiY, hiW, hiH, baseAlpha, lipAngle);
 
       // 2. Hot-spot sparkle (tight core inside main spot)
@@ -2391,9 +2398,12 @@
                 lowerH * 0.16 * poutScaleH,
                 Math.min(1, baseAlpha * 1.2), lipAngle);
 
-      // 3. Secondary lower reflection (smaller, also screen-left)
-      tightSpot(lipMidX + hiShiftX * 0.50 - lipW * 0.08,
-                lowerTop + lowerH * 0.70 + hiShiftY + openYShift * 0.50,
+      // 3. Secondary lower reflection — also clamped inside lip
+      var sec3X = lipMidX + hiShiftX * 0.50 - lipW * 0.08 * (1 - absYaw * 0.40);
+      var sec3Y = Math.min(
+                    lowerTop + lowerH * 0.70 + hiShiftY + openYShift * 0.50,
+                    lowerBot - lowerH * 0.05);
+      tightSpot(sec3X, sec3Y,
                 lipW  * 0.11 * poutScaleW,
                 lowerH * 0.20 * poutScaleH,
                 baseAlpha * 0.38, lipAngle);
