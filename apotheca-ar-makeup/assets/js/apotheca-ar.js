@@ -2107,12 +2107,28 @@
       const dx    = (t && t.dx)   || 0;
       const dy    = (t && t.dy)   || 0;
 
-      const first = landmarks[indices[0]];
+      // Convert landmark indices to canvas pixel coordinates.
+      const pts = indices.map(function (idx) {
+        var lm = landmarks[idx];
+        return { x: lm.x * srcW * scale + dx, y: lm.y * srcH * scale + dy };
+      });
+      const n = pts.length;
+
+      // Smooth closed curve via midpoint quadratic bezier.
+      // Each segment arcs from midpoint(P[i-1], P[i]) to midpoint(P[i], P[i+1])
+      // using P[i] as the control point.  The curve passes smoothly through every
+      // midpoint and rounds off the hard corners at each landmark — eliminating
+      // the visible polygon edges that appear when the mouth opens.
       ctx.beginPath();
-      ctx.moveTo((first.x * srcW * scale) + dx, (first.y * srcH * scale) + dy);
-      for (let i = 1; i < indices.length; i++) {
-        const p = landmarks[indices[i]];
-        ctx.lineTo((p.x * srcW * scale) + dx, (p.y * srcH * scale) + dy);
+      ctx.moveTo((pts[n - 1].x + pts[0].x) * 0.5,
+                 (pts[n - 1].y + pts[0].y) * 0.5);
+      for (var i = 0; i < n; i++) {
+        var next = (i + 1) % n;
+        ctx.quadraticCurveTo(
+          pts[i].x, pts[i].y,
+          (pts[i].x + pts[next].x) * 0.5,
+          (pts[i].y + pts[next].y) * 0.5
+        );
       }
       ctx.closePath();
     },
@@ -2512,8 +2528,13 @@
       var dt  = Math.min((now - ss.prevT) / 1000, 0.1);           // seconds, clamped
       var dxN = (lipMidX  - ss.prevX) / (lipW   || 1);           // normalised X delta
       var dyN = (lowerTop - ss.prevY) / (lowerH  || 1);           // normalised Y delta
+      // Dead-zone: strip out sub-pixel detection jitter (< 0.8 % of lip size).
+      // Without this, camera noise keeps energy permanently non-zero even on a
+      // perfectly still face.  Multiplier reduced from 14→5 for the same reason.
+      var rawDisp = Math.sqrt(dxN * dxN + dyN * dyN);
+      var disp    = Math.max(0, rawDisp - 0.008);
       ss.energy = Math.min(1, ss.energy * Math.exp(-dt * 8)        // decay ~125 ms half-life
-                              + Math.min(Math.sqrt(dxN*dxN + dyN*dyN) * 14, 1));
+                              + Math.min(disp * 5, 1));
       ss.prevX = lipMidX;  ss.prevY = lowerTop;  ss.prevT = now;
       var motion = ss.energy;
       var tSec   = now / 1000;    // wall-clock seconds for sine oscillation
@@ -2589,9 +2610,9 @@
       }
 
       // Sparkles only animate while the head/lip-centre is moving.
-      // motion > 0.05 gives ~250 ms of continued sparkle after the head stops,
-      // then the effect freezes until movement resumes.
-      var moving = motion > 0.05;
+      // motion > 0.15 requires a genuine deliberate movement; camera jitter and
+      // micro-tremor stay well below this after the dead-zone is applied.
+      var moving = motion > 0.15;
 
       var particles = self._shimmerParticles;
       for (var _p = 0; _p < particles.length; _p++) {
