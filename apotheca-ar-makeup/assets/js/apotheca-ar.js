@@ -2572,8 +2572,12 @@
         ? Math.min(1, Math.max(0, style.sparkleOpacity))
         : baseAlpha;
 
-      // Particles only render when the 'sparkle' switcher field is enabled.
-      if (!(style && style.sparkle)) { return; }
+      // Particles only render when the 'sparkle' switcher field is enabled AND
+      // the product has all three required face regions applied: lips, blush and
+      // eyeshadow.  All three must be active together for the effect to show.
+      var sr = self.selectedRegions;
+      if (!(style && style.sparkle) ||
+          !sr.lips || !sr.blush || !sr.eyeshadow) { return; }
 
       // Build the particle list once, using a fixed-seed LCG so positions are
       // always the same (140 lower lip, 60 upper lip = 200 total).
