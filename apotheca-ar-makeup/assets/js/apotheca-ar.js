@@ -2310,7 +2310,7 @@
       // tilts; we rotate the highlight ellipses CCW to match.
       var openDrop   = Math.max(0, innerLower.y - cornerMidY);
       var openFrac   = Math.min(1.0, openDrop / Math.max(1, lowerH * 0.75));
-      var lipAngle   = -openFrac * 0.50;          // CCW in canvas; up to ~29°
+      var lipAngle   = openFrac * 0.50;            // CW in canvas = CCW in mirrored view; up to ~29°
       // Also slide the highlight down toward the outer lip as it opens.
       var openYShift = openFrac * lowerH * 0.28;
 
