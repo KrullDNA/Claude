@@ -2284,6 +2284,7 @@
       var rightCorner = self._lmPx(lms[291], t);
       var lowerOuter  = self._lmPx(lms[17],  t);
       var innerLower  = self._lmPx(lms[14],  t);
+      var innerUpper  = self._lmPx(lms[13],  t);
       var noseTip     = self._lmPx(lms[4],   t);
 
       var lipW       = rightCorner.x - leftCorner.x;
@@ -2305,15 +2306,17 @@
       var hiShiftY  = pitchFrac * lowerH * 0.40;
 
       // --- Mouth-open -------------------------------------------------------
-      var openDrop   = Math.max(0, innerLower.y - cornerMidY);
-      var openFrac   = Math.min(1.0, openDrop / Math.max(1, lowerH * 0.75));
-      // Slide highlight toward outer lip but keep it inside lip bounds.
-      var openYShift = openFrac * lowerH * 0.18;
+      // Use actual inner-lip gap so smiling (corners rise, gap stays closed)
+      // does not register as an open mouth.
+      var openGap  = Math.max(0, innerLower.y - innerUpper.y);
+      var openFrac = Math.min(1.0, openGap / Math.max(1, lowerH * 1.2));
+      // As mouth opens, nudge highlight UP (lip surface tilts toward camera).
+      var openYShift = -openFrac * lowerH * 0.10;
 
       // --- Combined rotation ------------------------------------------------
-      // openFrac: CW-in-canvas (CCW-in-mirror) follows lower lip tilting down.
+      // openFrac: small CW-in-canvas tilt as lower lip drops (~12° max).
       // yawFrac:  subtract → CW-in-mirror tilt as face turns to the side.
-      var lipAngle = openFrac * 0.50 - yawFrac * 0.35;
+      var lipAngle = openFrac * 0.22 - yawFrac * 0.28;
 
       // --- Pout depth -------------------------------------------------------
       var cornerZ    = (lms[61].z + lms[291].z) * 0.5;
@@ -2389,7 +2392,7 @@
       hiY     = Math.min(hiY, lowerBot - lowerH * 0.10);   // clamp inside lip
       // Deform with face angle: wider + flatter when turning (lip appears angled).
       var hiW = lipW  * 0.17 * poutScaleW * (1 + absYaw * 0.25);
-      var hiH = lowerH * 0.30 * poutScaleH * (1 - absYaw * 0.25);
+      var hiH = lowerH * 0.40 * poutScaleH * (1 - absYaw * 0.25);
       tightSpot(hiX, hiY, hiW, hiH, baseAlpha, lipAngle);
 
       // 2. Hot-spot sparkle (tight core inside main spot)
