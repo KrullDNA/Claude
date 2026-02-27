@@ -426,7 +426,7 @@
      * Set zoom level (canvas crop/scale). Also tries native camera zoom if supported.
      */
     setZoom: function (value, silentUI) {
-      const v = Math.max(1, Math.min(2.5, value || 1));
+      const v = Math.max(1, Math.min(2, value || 1));
       this.zoomLevel = v;
 
       // Update UI
@@ -769,8 +769,10 @@
           // a huge internal buffer and clip it), the 9-arg crop form lets the
           // renderer work only on the pixels we actually need and produces a
           // sharper result — especially at higher zoom levels.
-          const cropW = srcW / zoom;
-          const cropH = srcH / zoom;
+          // cropW/H is derived from the canvas dimensions so the crop aspect
+          // ratio always matches the canvas — no squashing or stretching.
+          const cropW = w / scale;
+          const cropH = h / scale;
           const sx    = (srcW - cropW) / 2;
           const sy    = (srcH - cropH) / 2;
 

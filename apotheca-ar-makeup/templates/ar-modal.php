@@ -59,7 +59,7 @@ $tips_content = isset($modal_settings['tips_content']) ? $modal_settings['tips_c
                         id="apotheca-ar-zoom"
                         class="apotheca-ar-zoom"
                         min="1"
-                        max="2.5"
+                        max="2"
                         step="0.01"
                         value="1"
                     />
