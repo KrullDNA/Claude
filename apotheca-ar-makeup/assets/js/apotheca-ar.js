@@ -2540,7 +2540,8 @@
         var ry = rx * 0.65;   // slightly flattened ellipse
         var g  = octx.createRadialGradient(0, 0, 0, 0, 0, 1);
         g.addColorStop(0,    'rgba(255,255,255,' + Math.min(1, eff).toFixed(3) + ')');
-        g.addColorStop(0.50, 'rgba(255,255,255,' + (eff * 0.35).toFixed(3) + ')');
+        g.addColorStop(0.68, 'rgba(255,255,255,' + Math.min(1, eff).toFixed(3) + ')');
+        g.addColorStop(0.92, 'rgba(255,255,255,' + (eff * 0.12).toFixed(3) + ')');
         g.addColorStop(1,    'rgba(255,255,255,0)');
         octx.save();
         octx.globalAlpha = 1.0;
