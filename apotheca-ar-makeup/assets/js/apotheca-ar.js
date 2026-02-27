@@ -2573,11 +2573,11 @@
         : baseAlpha;
 
       // Particles only render when the 'sparkle' switcher field is enabled AND
-      // the product has all three required face regions applied: lips, blush and
-      // eyeshadow.  All three must be active together for the effect to show.
+      // the relevant region is currently selected.  Each region is independent —
+      // sparkle on lips fires when lips is selected; blush and eyeshadow would
+      // be handled by their own draw paths if/when sparkle is added there.
       var sr = self.selectedRegions;
-      if (!(style && style.sparkle) ||
-          !sr.lips || !sr.blush || !sr.eyeshadow) { return; }
+      if (!(style && style.sparkle) || !sr.lips) { return; }
 
       // Build the particle list once, using a fixed-seed LCG so positions are
       // always the same (140 lower lip, 60 upper lip = 200 total).
