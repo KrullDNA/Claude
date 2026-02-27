@@ -257,14 +257,16 @@ if (isset($product) && $product && is_a($product, 'WC_Product')) {
     }
 
     // Shimmer opacity override (0-100 integer → 0-1 float).
+    // Stored under its own 'shimmerOpacity' key so it never collides with gloss_opacity.
+    // Treat empty string as 0 (some CMS fields don't persist a literal zero).
     $shimmer_raw = get_post_meta($product_id, 'shimmer_opacity', true);
-    if ($shimmer_raw !== '' && $shimmer_raw !== false && $shimmer_raw !== null) {
-        $shimmer_val = (int) $shimmer_raw;
+    if ($shimmer_raw !== false && $shimmer_raw !== null) {
+        $shimmer_val = (int) $shimmer_raw; // '' → 0, '0' → 0, '75' → 75
         if ($shimmer_val >= 0 && $shimmer_val <= 100) {
             if (!isset($product_styles['lips'])) {
                 $product_styles['lips'] = array();
             }
-            $product_styles['lips']['glossOpacity'] = round($shimmer_val / 100, 4);
+            $product_styles['lips']['shimmerOpacity'] = round($shimmer_val / 100, 4);
         }
     }
 

@@ -2466,9 +2466,15 @@
       var lowerBot = lowerOuter.y;
       var lowerH   = Math.max(1, lowerBot - lowerTop);
 
-      var baseAlpha = (style && style.glossOpacity !== undefined)
-        ? Math.min(1, Math.max(0, style.glossOpacity))
+      // shimmerOpacity is the dedicated key; fall back to glossOpacity for
+      // backward compat, then derive from lipsOpacity.
+      var shimmerOpacity = (style && style.shimmerOpacity !== undefined)
+        ? style.shimmerOpacity
+        : (style && style.glossOpacity !== undefined ? style.glossOpacity : null);
+      var baseAlpha = (shimmerOpacity !== null)
+        ? Math.min(1, Math.max(0, shimmerOpacity))
         : Math.min(0.80, 0.45 + lipsOpacity * 0.35);
+      if (baseAlpha <= 0) { return; }   // opacity is zero — nothing to draw
 
       // Single large, heavily-feathered central glow on the lower lip only.
       // The gradient fades very gradually from the centre out so the whole
