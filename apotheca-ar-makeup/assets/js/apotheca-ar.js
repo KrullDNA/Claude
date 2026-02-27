@@ -759,18 +759,32 @@
         const srcH = img.videoHeight || img.height || 0;
 
         if (srcW && srcH) {
+          const zoom      = this.zoomLevel || 1;
           const baseScale = Math.max(w / srcW, h / srcH);
-          const scale = baseScale * (this.zoomLevel || 1);
+          const scale     = baseScale * zoom;
 
-          const dw = srcW * scale;
-          const dh = srcH * scale;
-          const dx = (w - dw) / 2;
-          const dy = (h - dh) / 2;
+          // Digital zoom: crop only the visible centre region of the source
+          // and stretch it to fill the canvas exactly.  Compared to drawing the
+          // full frame at an oversize dw/dh (which forces the browser to allocate
+          // a huge internal buffer and clip it), the 9-arg crop form lets the
+          // renderer work only on the pixels we actually need and produces a
+          // sharper result — especially at higher zoom levels.
+          const cropW = srcW / zoom;
+          const cropH = srcH / zoom;
+          const sx    = (srcW - cropW) / 2;
+          const sy    = (srcH - cropH) / 2;
+
+          // dx/dy are mathematically identical to the old (w - srcW*scale)/2 form,
+          // so all landmark overlay code that uses renderTransform is unaffected.
+          const dx = (w - srcW * scale) / 2;
+          const dy = (h - srcH * scale) / 2;
 
           // Cache the transform so landmark mapping matches the cropped draw
           this.renderTransform = { srcW, srcH, scale, dx, dy, w, h };
 
-          ctx2d.drawImage(img, dx, dy, dw, dh);
+          ctx2d.imageSmoothingEnabled = true;
+          ctx2d.imageSmoothingQuality = 'high';
+          ctx2d.drawImage(img, sx, sy, cropW, cropH, 0, 0, w, h);
         } else {
           // Fallback
           ctx2d.drawImage(img, 0, 0, w, h);
