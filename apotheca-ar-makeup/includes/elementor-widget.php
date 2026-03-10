@@ -1775,6 +1775,24 @@ class Apotheca_AR_Elementor_Widget extends \Elementor\Widget_Base {
      * Render widget output
      */
     protected function render() {
+        // Hide the widget on products where AR is deactivated.
+        $current_product_id = 0;
+        if (function_exists('is_product') && is_product()) {
+            $current_product_id = get_the_ID();
+        }
+        if (!$current_product_id) {
+            $queried = get_queried_object();
+            if ($queried && isset($queried->ID) && get_post_type($queried->ID) === 'product') {
+                $current_product_id = $queried->ID;
+            }
+        }
+        if ($current_product_id) {
+            $ar_enabled = get_post_meta($current_product_id, '_apotheca_ar_enabled', true);
+            if ($ar_enabled === 'no') {
+                return; // AR deactivated for this product — render nothing.
+            }
+        }
+
         $settings = $this->get_settings_for_display();
 
         $button_class = 'apotheca-ar-trigger elementor-button';
