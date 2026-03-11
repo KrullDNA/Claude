@@ -1865,8 +1865,8 @@ class Apotheca_AR_Elementor_Widget extends \Elementor\Widget_Base {
                 'blendMode' => !empty( $settings['foundation_blend_mode'] ) ? $settings['foundation_blend_mode'] : 'source-over',
             ],
             'lips' => [
-                'opacity'   => floatval( isset( $settings['lips_opacity']['size'] )       ? $settings['lips_opacity']['size']       : 70  ) / 100,
-                'feather'   => floatval( isset( $settings['lips_feather']['size'] )       ? $settings['lips_feather']['size']       : 0   ),
+                'opacity'      => floatval( isset( $settings['lips_opacity']['size'] )       ? $settings['lips_opacity']['size']       : 70  ) / 100,
+                'feather'      => floatval( isset( $settings['lips_feather']['size'] )       ? $settings['lips_feather']['size']       : 0   ),
                 'blendMode' => !empty( $settings['lips_blend_mode'] )       ? $settings['lips_blend_mode']       : 'source-over',
             ],
             'eyeshadow' => [

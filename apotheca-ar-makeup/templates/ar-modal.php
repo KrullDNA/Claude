@@ -59,7 +59,7 @@ $tips_content = isset($modal_settings['tips_content']) ? $modal_settings['tips_c
                         id="apotheca-ar-zoom"
                         class="apotheca-ar-zoom"
                         min="1"
-                        max="2.5"
+                        max="2"
                         step="0.01"
                         value="1"
                     />
@@ -246,42 +246,82 @@ if (isset($product) && $product && is_a($product, 'WC_Product')) {
         }
     }
 
-    // Shimmer flag — JetEngine / Crocoblock switcher stores '1' when on.
-    // Only meaningful for lip-region products; JS checks lipsStyle.shimmer.
+    // Shimmer flag — JetEngine / Crocoblock switcher stores '1' when on, '0' when off.
     $gloss_raw = get_post_meta($product_id, 'shimmer', true);
-    if ($gloss_raw !== '' && $gloss_raw !== false && $gloss_raw !== null
-        && $gloss_raw !== '0' && $gloss_raw !== 'false' && $gloss_raw !== 'no'
-    ) {
+    if ($gloss_raw !== '' && $gloss_raw !== false && $gloss_raw !== null) {
         if (!isset($product_styles['lips'])) {
             $product_styles['lips'] = array();
         }
-        $product_styles['lips']['shimmer'] = true;
+        $gloss_on = !in_array((string) $gloss_raw, array('0', 'false', 'no'), true);
+        $product_styles['lips']['shimmer'] = $gloss_on;
     }
 
-    // Gloss flag — JetEngine / Crocoblock switcher stores '1' when on.
-    // Triggers the concentrated specular oval treatment (_drawLipGlossEffect).
-    $glossflag_raw = get_post_meta($product_id, 'gloss', true);
-    if ($glossflag_raw !== '' && $glossflag_raw !== false && $glossflag_raw !== null
-        && $glossflag_raw !== '0' && $glossflag_raw !== 'false' && $glossflag_raw !== 'no'
-    ) {
-        if (!isset($product_styles['lips'])) {
-            $product_styles['lips'] = array();
-        }
-        $product_styles['lips']['gloss'] = true;
-    }
-
-    // Shimmer / gloss opacity override (0-100 integer → 0-1 float).
-    // When set, this value is used directly as the gloss highlight intensity
-    // in _drawLipGloss() instead of the default auto-scaling from lip opacity.
-    // Leave the field blank to use the built-in behaviour.
+    // Shimmer opacity override (0-100 integer → 0-1 float).
+    // Stored under its own 'shimmerOpacity' key so it never collides with gloss_opacity.
+    // Treat empty string as 0 (some CMS fields don't persist a literal zero).
     $shimmer_raw = get_post_meta($product_id, 'shimmer_opacity', true);
-    if ($shimmer_raw !== '' && $shimmer_raw !== false && $shimmer_raw !== null) {
-        $shimmer_val = (int) $shimmer_raw;
+    if ($shimmer_raw !== false && $shimmer_raw !== null) {
+        $shimmer_val = (int) $shimmer_raw; // '' → 0, '0' → 0, '75' → 75
         if ($shimmer_val >= 0 && $shimmer_val <= 100) {
             if (!isset($product_styles['lips'])) {
                 $product_styles['lips'] = array();
             }
-            $product_styles['lips']['glossOpacity'] = round($shimmer_val / 100, 4);
+            $product_styles['lips']['shimmerOpacity'] = round($shimmer_val / 100, 4);
+        }
+    }
+
+    // Gloss flag — dedicated gloss effect toggle (works identically to shimmer).
+    $gloss_toggle_raw = get_post_meta($product_id, 'gloss', true);
+    if ($gloss_toggle_raw !== '' && $gloss_toggle_raw !== false && $gloss_toggle_raw !== null) {
+        if (!isset($product_styles['lips'])) {
+            $product_styles['lips'] = array();
+        }
+        $gloss_toggle_on = !in_array((string) $gloss_toggle_raw, array('0', 'false', 'no'), true);
+        $product_styles['lips']['gloss'] = $gloss_toggle_on;
+    }
+
+    // Gloss opacity override — per-product intensity for the gloss effect (0-100 integer → 0-1 float).
+    $gloss_opacity_raw = get_post_meta($product_id, 'gloss_opacity', true);
+    if ($gloss_opacity_raw !== '' && $gloss_opacity_raw !== false && $gloss_opacity_raw !== null) {
+        $gloss_opacity_val = (int) $gloss_opacity_raw;
+        if ($gloss_opacity_val >= 0 && $gloss_opacity_val <= 100) {
+            if (!isset($product_styles['lips'])) {
+                $product_styles['lips'] = array();
+            }
+            $product_styles['lips']['glossOpacity'] = round($gloss_opacity_val / 100, 4);
+        }
+    }
+
+    // Sparkle opacity — controls the intensity of the many-small-sparkle glint
+    // effect (0-100 integer → 0-1 float).  A non-zero value also implicitly
+    // enables the shimmer renderer so no separate 'shimmer' field is needed.
+    $sparkle_raw = get_post_meta($product_id, 'sparkle_opacity', true);
+    if ($sparkle_raw !== '' && $sparkle_raw !== false && $sparkle_raw !== null) {
+        $sparkle_val = (int) $sparkle_raw;
+        if ($sparkle_val >= 0 && $sparkle_val <= 100) {
+            if (!isset($product_styles['lips'])) {
+                $product_styles['lips'] = array();
+            }
+            $product_styles['lips']['sparkleOpacity'] = round($sparkle_val / 100, 4);
+            // Non-zero sparkle_opacity activates the shimmer renderer automatically.
+            if ($sparkle_val > 0) {
+                $product_styles['lips']['shimmer'] = true;
+            }
+        }
+    }
+
+    // Sparkle switcher — JetEngine / Crocoblock switcher field ('1' on, '0' off).
+    // Turns the 200-particle sparkle effect on or off for this product.
+    // Enabling it also activates the shimmer renderer pipeline automatically.
+    $sparkle_switch_raw = get_post_meta($product_id, 'sparkle', true);
+    if ($sparkle_switch_raw !== '' && $sparkle_switch_raw !== false && $sparkle_switch_raw !== null) {
+        if (!isset($product_styles['lips'])) {
+            $product_styles['lips'] = array();
+        }
+        $sparkle_on = !in_array((string) $sparkle_switch_raw, array('0', 'false', 'no'), true);
+        $product_styles['lips']['sparkle'] = $sparkle_on;
+        if ($sparkle_on) {
+            $product_styles['lips']['shimmer'] = true;
         }
     }
 }
